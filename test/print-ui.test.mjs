@@ -54,6 +54,30 @@ test('a reported printer error does not disable the print button', async () => {
   assert.doesNotMatch(f.node('#print-readiness').textContent, /báo lỗi/);
 });
 
+test('the file picker uploads every selected sliced file and keeps going after one rejection', async () => {
+  const f = await ui();
+  const sent = [];
+  f.context.File = File;
+  f.context.FormData = FormData;
+  vm.runInContext(
+    `api = async (_url, options) => { const file = options.body.get('file'); sent.push(file.name); if (file.name.startsWith('bad')) throw new Error('tệp hỏng'); return {}; }; loadProjects = async () => { reloaded = true }; toast = (message) => { notices.push(message) }; sent = []; notices = []; reloaded = false;`,
+    f.context,
+  );
+  f.context.sent = sent;
+  f.node('#file-input').files = [
+    new File(['a'], '01.gcode.3mf'),
+    new File(['b'], 'note.txt'),
+    new File(['c'], 'bad.gcode.3mf'),
+    new File(['d'], '02.gcode.3mf'),
+  ];
+  await assert.rejects(vm.runInContext('uploadFile()', f.context), /note\.txt/);
+  assert.deepEqual([...f.context.sent], ['01.gcode.3mf', 'bad.gcode.3mf', '02.gcode.3mf']);
+  assert.deepEqual([...f.context.notices], ['Đã thêm 2 tệp vào thư viện.']);
+  assert.equal(f.context.reloaded, true);
+  const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="file-input"[^>]*\bmultiple\b/);
+});
+
 test('file library has one action to start every file and a visible readiness explanation', async () => {
   const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
   assert.match(html, /id="print-all-button"/);

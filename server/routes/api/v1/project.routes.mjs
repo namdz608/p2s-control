@@ -7,6 +7,7 @@ export function projectRoutes(controller, upload) {
   router.post('/queue/start', controller.startQueue);
   router.post('/queue/cancel', controller.cancelQueue);
   router.post('/', upload, controller.store);
+  router.get('/:id/preview', controller.preview);
   router.delete('/:id', controller.destroy);
   router.post('/:id/start', controller.start);
   return router;

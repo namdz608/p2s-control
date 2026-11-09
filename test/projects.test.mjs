@@ -5,7 +5,7 @@ import { createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import yazl from 'yazl';
-import { inspectArchive } from '../server/services/project-archive.service.mjs';
+import { inspectArchive, readPlatePreview } from '../server/services/project-archive.service.mjs';
 import { buildPrintRequest } from '../server/services/print-request.service.mjs';
 import { ProjectService } from '../server/services/project.service.mjs';
 
@@ -157,6 +157,41 @@ test('manual mode accepts every reported AMS slot even when only A2 has declared
         () => buildPrintRequest(project, { ...input, mappingMode: 'auto' }, state),
         /có vật liệu/,
       );
+  }
+});
+
+test('plate preview prefers the full PNG of the first plate and rejects a fake image', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'p2s-preview-'));
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  try {
+    const file = path.join(dir, 'preview.gcode.3mf');
+    const zip = new yazl.ZipFile();
+    zip.addBuffer(Buffer.from('not-an-image'), 'Metadata/plate_1.png');
+    const done = new Promise((resolve, reject) =>
+      zip.outputStream.pipe(createWriteStream(file)).on('finish', resolve).on('error', reject),
+    );
+    zip.end();
+    await done;
+    const fake = await readPlatePreview(file);
+    assert.equal(fake, null);
+    const real = path.join(dir, 'real.gcode.3mf');
+    const second = new yazl.ZipFile();
+    second.addBuffer(Buffer.from('not-an-image'), 'Metadata/plate_1.png');
+    second.addBuffer(png, 'Metadata/plate_8.png');
+    second.addBuffer(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), 'Metadata/plate_1_small.png');
+    const written = new Promise((resolve, reject) =>
+      second.outputStream.pipe(createWriteStream(real)).on('finish', resolve).on('error', reject),
+    );
+    second.end();
+    await written;
+    const image = await readPlatePreview(real);
+    assert.equal(image.type, 'image/png');
+    assert.equal(image.body.equals(png), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
 

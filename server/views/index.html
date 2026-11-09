@@ -7,8 +7,8 @@
     <meta name="description" content="Không gian điều khiển Bambu Lab P2S Combo của bạn." />
     <title>Printroom · P2S Control</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/style.css?v=camera-row-20261109" />
-    <script src="/app.js?v=print-error-20261109" defer></script>
+    <link rel="stylesheet" href="/style.css?v=file-preview-20261109" />
+    <script src="/app.js?v=file-preview-20261109" defer></script>
   </head>
   <body>
     <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -561,15 +561,15 @@
 
           <div id="page-files" class="page-content" hidden>
             <section class="card upload-card">
-              <input type="file" id="file-input" accept=".3mf" hidden />
+              <input type="file" id="file-input" accept=".3mf,.gcode.3mf" multiple hidden />
               <div class="upload-symbol">
                 <svg><use href="#i-upload" /></svg>
               </div>
               <div>
                 <h2>Ý tưởng tiếp theo, sẵn sàng để in.</h2>
                 <p>
-                  Tải tệp .gcode.3mf đã slice cho P2S trong Bambu Studio hoặc OrcaSlicer. Tối đa 200
-                  MB.
+                  Tải một hoặc nhiều tệp .gcode.3mf đã slice cho P2S trong Bambu Studio hoặc
+                  OrcaSlicer. Mỗi tệp tối đa 200 MB.
                 </p>
               </div>
               <button id="upload-button" class="button primary">
@@ -762,6 +762,7 @@
           </button>
         </div>
         <p id="print-project-name" class="dialog-description"></p>
+        <img id="print-preview" class="print-preview" alt="" hidden />
         <div class="form-grid">
           <label>Plate<select id="print-plate"></select></label
           ><label

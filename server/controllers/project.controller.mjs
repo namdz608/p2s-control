@@ -10,6 +10,14 @@ export class ProjectController {
     res.json(await this.projects.list());
   };
 
+  preview = async (req, res) => {
+    const image = await this.projects.preview(req.params.id);
+    res.setHeader('Content-Type', image.type);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Content-Disposition', 'inline');
+    res.send(image.body);
+  };
+
   store = async (req, res) => {
     if (!req.file) throw new AppError('Chưa chọn tệp in.');
     try {

@@ -2,7 +2,7 @@ import { PrintQueueService } from './print-queue.service.mjs';
 import { randomBytes } from 'node:crypto';
 import { AppError } from '../errors/app-error.mjs';
 import { ProjectModel } from '../models/project.model.mjs';
-import { inspectArchive } from './project-archive.service.mjs';
+import { inspectArchive, readPlatePreview } from './project-archive.service.mjs';
 import { buildPrintRequest } from './print-request.service.mjs';
 import { uploadPrinterFile } from './printer-file.service.mjs';
 
@@ -22,6 +22,13 @@ export class ProjectService {
 
   list() {
     return this.model.list();
+  }
+
+  async preview(id) {
+    const project = await this.model.get(id);
+    const image = await readPlatePreview(this.model.file(project.id, 'gcode.3mf'));
+    if (!image) throw new AppError('Tệp không có ảnh xem trước.', 404);
+    return image;
   }
 
   async add(file) {

@@ -827,7 +827,7 @@ async function loadProjects() {
     ? UI.projects
         .map(
           (project) =>
-            `<article class="card project-card"><div class="project-art">${icon('cube')}</div><h3 title="${escape(project.name)}">${escape(project.name)}</h3><div class="project-meta"><span>${project.plates.length} plate</span><span>${(project.size / 1024 ** 2).toFixed(1)} MB</span><span>${new Date(project.addedAt).toLocaleDateString('vi-VN')}</span></div><div class="project-actions"><button class="button secondary project-print" data-project="${project.id}" ${UI.queue.active ? 'disabled' : ''}>${icon('play')} In riêng</button><button class="text-button" data-delete="${project.id}">Xóa</button></div></article>`,
+            `<article class="card project-card"><div class="project-art"><img src="${API_BASE}/projects/${project.id}/preview" alt="Xem trước ${escape(project.name)}" onerror="this.remove()" />${icon('cube')}</div><h3 title="${escape(project.name)}">${escape(project.name)}</h3><div class="project-meta"><span>${project.plates.length} plate</span><span>${(project.size / 1024 ** 2).toFixed(1)} MB</span><span>${new Date(project.addedAt).toLocaleDateString('vi-VN')}</span></div><div class="project-actions"><button class="button secondary project-print" data-project="${project.id}" ${UI.queue.active ? 'disabled' : ''}>${icon('play')} In riêng</button><button class="text-button" data-delete="${project.id}">Xóa</button></div></article>`,
         )
         .join('')
     : `<div class="library-empty">${icon('file')}<h3>Bản in tiếp theo bắt đầu ở đây.</h3><p>Thêm một tệp .gcode.3mf đã slice cho P2S để lưu và gửi tới máy in.</p></div>`;
@@ -941,19 +941,32 @@ async function startPrintQueue() {
   }
 }
 async function uploadFile() {
-  const file = $('#file-input').files[0];
-  if (!file) return;
+  const files = [...($('#file-input').files || [])];
+  if (!files.length) return;
+  const failures = [];
+  let added = 0;
   try {
-    if (!file.name.toLowerCase().endsWith('.gcode.3mf'))
-      throw new Error('Chọn .gcode.3mf đã slice cho P2S.');
-    if (file.size > 200 * 1024 ** 2) throw new Error('Tệp vượt quá 200 MB.');
     $('#upload-button').disabled = true;
-    $('#upload-button').textContent = 'Đang tải tệp…';
-    const form = new FormData();
-    form.append('file', file);
-    await api('/projects', { method: 'POST', body: form, timeout: 180000 });
-    await loadProjects();
-    toast('Đã thêm tệp vào thư viện.');
+    for (const [index, file] of files.entries()) {
+      $('#upload-button').textContent =
+        files.length === 1 ? 'Đang tải tệp…' : `Đang tải ${index + 1}/${files.length}…`;
+      try {
+        if (!file.name.toLowerCase().endsWith('.gcode.3mf'))
+          throw new Error('Chỉ nhận .gcode.3mf đã slice cho P2S.');
+        if (file.size > 200 * 1024 ** 2) throw new Error('Tệp vượt quá 200 MB.');
+        const form = new FormData();
+        form.append('file', file);
+        await api('/projects', { method: 'POST', body: form, timeout: 180000 });
+        added += 1;
+      } catch (error) {
+        failures.push(`${file.name}: ${error.message}`);
+      }
+    }
+    if (added) {
+      await loadProjects();
+      toast(added === 1 ? 'Đã thêm tệp vào thư viện.' : `Đã thêm ${added} tệp vào thư viện.`);
+    }
+    if (failures.length) throw new Error(failures.join('\n'));
   } finally {
     $('#upload-button').disabled = false;
     $('#upload-button').innerHTML = `${icon('plus')} Thêm tệp in`;
@@ -968,6 +981,16 @@ function openPrint(id) {
   $('#print-error').textContent = printReadiness();
   $('#print-form button[type=submit]').disabled = !canPrint();
   $('#print-project-name').textContent = project.name;
+  const preview = $('#print-preview');
+  preview.hidden = true;
+  preview.alt = `Xem trước ${project.name}`;
+  preview.onload = () => {
+    preview.hidden = false;
+  };
+  preview.onerror = () => {
+    preview.hidden = true;
+  };
+  preview.src = `${API_BASE}/projects/${project.id}/preview`;
   $('#print-plate').innerHTML = project.plates
     .map(
       (plate) =>

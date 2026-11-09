@@ -3,6 +3,81 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { AppError } from '../errors/app-error.mjs';
 
 const asArray = (value) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
+const previewLimit = 2 * 1024 * 1024;
+
+function previewRank(name) {
+  const plate = /^Metadata\/plate_([1-9]\d{0,2})\.png$/i.exec(name);
+  if (plate) return [0, Number(plate[1])];
+  const top = /^Metadata\/top_([1-9]\d{0,2})\.png$/i.exec(name);
+  if (top) return [1, Number(top[1])];
+  const small = /^Metadata\/plate_([1-9]\d{0,2})_small\.png$/i.exec(name);
+  if (small) return [2, Number(small[1])];
+  const pick = /^Metadata\/pick_([1-9]\d{0,2})\.png$/i.exec(name);
+  if (pick) return [3, Number(pick[1])];
+  if (/^Metadata\/thumbnail\.png$/i.test(name)) return [4, 0];
+  return null;
+}
+
+function imageType(body) {
+  if (body.length > 8 && body[0] === 0x89 && body.toString('ascii', 1, 4) === 'PNG')
+    return 'image/png';
+  if (body.length > 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff)
+    return 'image/jpeg';
+  return '';
+}
+
+export function readPlatePreview(file) {
+  return new Promise((resolve) => {
+    yauzl.open(file, { lazyEntries: true, validateEntrySizes: true }, (error, zip) => {
+      if (error) return resolve(null);
+      const found = [];
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        zip.close();
+        resolve(value);
+      };
+      zip.on('error', () => finish(null));
+      zip.on('entry', (entry) => {
+        const rank = previewRank(entry.fileName);
+        if (!rank || entry.uncompressedSize <= 0 || entry.uncompressedSize > previewLimit)
+          return zip.readEntry();
+        zip.openReadStream(entry, (streamError, stream) => {
+          if (streamError) return zip.readEntry();
+          const chunks = [];
+          let size = 0;
+          let advanced = false;
+          const next = () => {
+            if (advanced) return;
+            advanced = true;
+            zip.readEntry();
+          };
+          stream.on('data', (chunk) => {
+            size += chunk.length;
+            if (size > previewLimit) {
+              next();
+              stream.destroy();
+            } else chunks.push(chunk);
+          });
+          stream.on('error', next);
+          stream.on('end', () => {
+            if (advanced) return;
+            const body = Buffer.concat(chunks);
+            const type = imageType(body);
+            if (type) found.push({ rank, body, type });
+            next();
+          });
+        });
+      });
+      zip.on('end', () => {
+        found.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
+        finish(found[0] ? { body: found[0].body, type: found[0].type } : null);
+      });
+      zip.readEntry();
+    });
+  });
+}
 
 export function inspectArchive(file) {
   return new Promise((resolve, reject) => {
