@@ -1,0 +1,115 @@
+name: Publish Docker image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-p2s-control-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: brucewayne2610/p2s-control
+
+jobs:
+  publish:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          # Cluster hiện chạy amd64; bỏ arm64/QEMU để publish nhanh (tránh treo 20–30 phút).
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Sau khi push image: cập nhật image.tag trong namdz608/helm-chart
+  # (chart p2s-control) để Argo CD deploy đúng SHA — giống laravel-ticket.
+  gitops:
+    if: github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source repository
+        uses: actions/checkout@v6
+
+      - name: Check out GitOps repository
+        uses: actions/checkout@v6
+        with:
+          repository: namdz608/helm-chart
+          token: ${{ secrets.GITOPS_REPO_TOKEN }}
+          ref: main
+          path: gitops
+
+      - name: Update desired image tag
+        run: ./.github/scripts/update-gitops-image.sh gitops/p2s-control/values.yaml "$GITHUB_SHA"
+
+      - name: Commit and push GitOps update
+        working-directory: gitops
+        env:
+          GITOPS_BRANCH: main
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add p2s-control/values.yaml
+
+          if git diff --cached --quiet; then
+            echo "GitOps repository already references ${IMAGE_TAG}"
+            exit 0
+          fi
+
+          git commit -m "deploy(p2s-control): ${IMAGE_TAG}"
+
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITOPS_BRANCH}"; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to push the GitOps update after ${attempt} attempts" >&2
+              exit 1
+            fi
+
+            echo "GitOps repository changed concurrently; rebasing before retry"
+            git pull --rebase origin "$GITOPS_BRANCH"
+          done
