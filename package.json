@@ -1,0 +1,30 @@
+{
+  "name": "p2s-control",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bảng điều khiển Bambu Lab P2S tự host trên Ubuntu/Docker",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "check": "node scripts/check.mjs && npm run format:check",
+    "format": "prettier --write server public/app.js test scripts",
+    "format:check": "prettier --check server public/app.js test scripts"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.6",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.3.0",
+    "mqtt": "^5.14.1",
+    "multer": "^2.0.2",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "aedes": "^0.51.3",
+    "prettier": "3.6.2",
+    "yazl": "^3.3.1"
+  }
+}

@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101215" />
+    <meta name="description" content="Không gian điều khiển Bambu Lab P2S Combo của bạn." />
+    <title>Printroom · P2S Control</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css?v=camera-row-20261109" />
+    <script src="/app.js?v=print-error-20261109" defer></script>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="i-grid" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </symbol>
+        <symbol id="i-cube" viewBox="0 0 24 24">
+          <path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5" />
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 24 24">
+          <path
+            d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h6"
+          />
+        </symbol>
+        <symbol id="i-usb" viewBox="0 0 24 24">
+          <path d="M12 2v6" />
+          <circle cx="12" cy="2.5" r=".5" />
+          <path d="M8 8h8v3a4 4 0 0 1-8 0z" />
+          <rect x="9" y="14" width="6" height="8" rx="1" />
+        </symbol>
+        <symbol id="i-spool" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 3v5m9 4h-5m-4 9v-5m-9-4h5" />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path
+            d="m9 3-.7 3-2 1-3-.5-1.5 3L4 12l-2.2 2.5 1.5 3 3-.5 2 1 .7 3h6l.7-3 2-1 3 .5 1.5-3L20 12l2.2-2.5-1.5-3-3 .5-2-1L15 3z"
+          />
+          <circle cx="12" cy="12" r="3" />
+        </symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" /></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24">
+          <rect x="3" y="5" width="13" height="14" rx="2" />
+          <path d="m16 10 5-3v10l-5-3" />
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" /></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z" /></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </symbol>
+        <symbol id="i-temp" viewBox="0 0 24 24">
+          <path d="M9 14.5V5a3 3 0 0 1 6 0v9.5a5 5 0 1 1-6 0Z M12 8v10" />
+        </symbol>
+        <symbol id="i-light" viewBox="0 0 24 24">
+          <path
+            d="M9 18h6m-5 3h4M8 12a6 6 0 1 1 8 0c-1.5 1-1 3-1 3H9s.5-2-1-3ZM12 1v1M3 5l1 1m16-1-1 1M1 12h2m18 0h2"
+          />
+        </symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24">
+          <path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5" />
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+          <path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24">
+          <path d="M10 4H5v16h5m-1-8h12m-4-4 4 4-4 4" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></symbol>
+      </defs>
+    </svg>
+
+    <main id="auth-view" class="auth-layout">
+      <section class="auth-art">
+        <a class="brand" href="/" aria-label="Printroom"
+          ><span class="brand-mark"
+            ><svg><use href="#i-cube" /></svg></span
+          >printroom<span class="brand-dot">.</span></a
+        >
+        <div class="auth-art-content">
+          <div class="eyebrow">Ý TƯỞNG THÀNH HIỆN THỰC</div>
+          <h1>Một không gian.<br />Mọi bản in.</h1>
+          <p>Theo dõi và điều khiển P2S Combo,<br />ngay trong trình duyệt của bạn.</p>
+          <img
+            src="/printer.svg"
+            alt="Minh họa máy in 3D với hộp vật liệu AMS"
+            width="460"
+            height="440"
+          />
+        </div>
+        <div class="auth-art-foot">
+          <span class="tiny-dot"></span> Dành cho Bambu Lab P2S Combo <span>01 / PRINTROOM</span>
+        </div>
+      </section>
+      <section class="auth-form-section">
+        <form id="login-form" class="login-form">
+          <span class="label-tag">XƯỞNG IN CÁ NHÂN</span>
+          <h2>Chào mừng trở lại<span>.</span></h2>
+          <p>Đăng nhập để mở không gian in của bạn.</p>
+          <label for="password">Mật khẩu truy cập</label
+          ><input
+            id="password"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            minlength="8"
+            required
+            placeholder="Nhập mật khẩu đã thiết lập"
+          />
+          <p id="login-error" class="form-error" role="alert"></p>
+          <button class="button primary wide" type="submit">
+            Vào không gian in <svg><use href="#i-arrow" /></svg>
+          </button>
+          <div class="login-note">
+            <svg><use href="#i-check" /></svg> Kết nối riêng. Quyền điều khiển thuộc về bạn.
+          </div>
+        </form>
+        <span class="auth-version">PRINTROOM / P2S CONTROL · 1.0</span>
+      </section>
+    </main>
+
+    <div id="app-view" class="app-layout" hidden>
+      <aside class="sidebar">
+        <a class="brand" href="/"
+          ><span class="brand-mark"
+            ><svg><use href="#i-cube" /></svg></span
+          >printroom<span class="brand-dot">.</span></a
+        >
+        <div class="sidebar-label">KHÔNG GIAN LÀM VIỆC</div>
+        <nav class="main-nav" aria-label="Điều hướng">
+          <button class="nav-item active" data-page="overview">
+            <svg><use href="#i-grid" /></svg><span>Tổng quan</span></button
+          ><button class="nav-item" data-page="files">
+            <svg><use href="#i-file" /></svg><span>Tệp in</span
+            ><span id="file-count" class="nav-count">0</span></button
+          ><button class="nav-item" data-page="usb" aria-label="Tệp trên USB máy in">
+            <svg><use href="#i-usb" /></svg><span>USB</span></button
+          ><button class="nav-item" data-page="materials">
+            <svg><use href="#i-spool" /></svg><span>Vật liệu</span></button
+          ><button class="nav-item" data-page="timelapse" aria-label="Ghi hình timelapse">
+            <svg><use href="#i-camera" /></svg><span>Timelapse</span></button
+          ><button class="nav-item" data-page="health" aria-label="Lỗi và kiểm tra máy in">
+            <svg><use href="#i-settings" /></svg><span>Lỗi &amp; kiểm tra</span>
+            <span id="fault-count" class="nav-count" hidden>0</span></button
+          ><button class="nav-item" id="nav-settings">
+            <svg><use href="#i-settings" /></svg><span>Kết nối máy in</span>
+          </button>
+        </nav>
+        <div class="sidebar-machine">
+          <div class="machine-icon">
+            <svg><use href="#i-cube" /></svg>
+          </div>
+          <div>
+            <strong>P2S Combo</strong
+            ><span
+              ><i id="sidebar-dot" class="tiny-dot muted-dot"></i
+              ><span id="sidebar-status">Chưa kết nối</span></span
+            >
+          </div>
+          <button class="icon-button" id="sidebar-settings" aria-label="Cấu hình máy in">
+            <svg><use href="#i-settings" /></svg>
+          </button>
+        </div>
+        <div class="sidebar-bottom">
+          <div class="avatar">P</div>
+          <div><strong>Xưởng in cá nhân</strong><span>Không gian của bạn</span></div>
+          <button class="icon-button" id="logout" aria-label="Đăng xuất">
+            <svg><use href="#i-logout" /></svg>
+          </button>
+        </div>
+      </aside>
+      <div class="main-column">
+        <header class="topbar">
+          <div class="breadcrumbs">
+            Không gian làm việc <span>/</span> <strong id="breadcrumb-page">Tổng quan</strong>
+          </div>
+          <div class="topbar-right">
+            <span class="local-badge"><i class="tiny-dot"></i> TỰ HOST</span
+            ><span class="topbar-divider"></span><span id="today"></span
+            ><span class="avatar small">P</span>
+          </div>
+        </header>
+        <main class="workspace">
+          <section class="page-heading">
+            <div>
+              <div class="eyebrow">XƯỞNG IN CÁ NHÂN</div>
+              <h1 id="page-title">Tổng quan<span>.</span></h1>
+              <p id="page-subtitle">Mọi thông tin về bản in, trong một không gian.</p>
+            </div>
+            <button id="heading-action" class="button secondary">
+              <svg><use href="#i-settings" /></svg> Kết nối máy in
+            </button>
+          </section>
+          <div id="connection-banner" class="connection-banner">
+            <div class="banner-icon">
+              <svg><use href="#i-plus" /></svg>
+            </div>
+            <div>
+              <strong id="banner-title">Bắt đầu với chiếc P2S của bạn</strong>
+              <p id="banner-text">Thêm thông tin máy in để xem trạng thái và điều khiển.</p>
+            </div>
+            <button id="banner-action" class="text-button">
+              Thiết lập ngay <svg><use href="#i-arrow" /></svg>
+            </button>
+          </div>
+
+          <div id="fault-banner" class="connection-banner is-error" role="status" hidden>
+            <div>
+              <strong>Lỗi và cảnh báo máy in</strong>
+              <p id="fault-banner-text"></p>
+            </div>
+            <button class="text-button" data-go="health">
+              Xem chi tiết <svg><use href="#i-arrow" /></svg>
+            </button>
+          </div>
+
+          <div id="page-timelapse" class="page-content" hidden>
+            <section class="card timelapse-controls">
+              <div class="card-top">
+                <h2>Ghi lại hành trình bản in</h2>
+                <span id="timelapse-storage" class="small-label"></span>
+              </div>
+              <div class="timelapse-controls-body">
+                <p id="timelapse-status" class="timelapse-status" role="status"></p>
+                <p id="timelapse-detail" class="field-help"></p>
+                <form id="timelapse-settings-form">
+                  <label class="checkbox-label"
+                    ><input id="timelapse-auto" type="checkbox" />Tự ghi khi máy bắt đầu bản in,
+                    dừng khi bản in kết thúc</label
+                  >
+                  <div class="timelapse-inputs">
+                    <label
+                      >Khoảng chụp (giây)<input
+                        id="timelapse-interval"
+                        type="number"
+                        min="2"
+                        max="300"
+                        step="1"
+                        value="10"
+                        required
+                    /></label>
+                    <label
+                      >Tốc độ video (fps)<select id="timelapse-fps">
+                        <option value="12">12 fps</option>
+                        <option value="24" selected>24 fps</option>
+                        <option value="30">30 fps</option>
+                        <option value="60">60 fps</option>
+                      </select></label
+                    >
+                    <button id="timelapse-save" class="button secondary" type="submit">
+                      Lưu thiết lập
+                    </button>
+                  </div>
+                </form>
+                <div class="timelapse-manual">
+                  <label
+                    >Tên bản ghi thủ công<input
+                      id="timelapse-name"
+                      maxlength="100"
+                      placeholder="Ví dụ: Tượng Batman" /></label
+                  ><button id="timelapse-start" class="button primary" type="button" disabled>
+                    <svg><use href="#i-camera" /></svg>Bắt đầu ghi</button
+                  ><button id="timelapse-stop" class="button danger" type="button" hidden>
+                    Dừng &amp; ghép video
+                  </button>
+                </div>
+                <p id="timelapse-error" class="form-error" role="alert"></p>
+                <p class="field-help">
+                  Ví dụ: chụp mỗi 10 giây, video 24 fps → 1 giờ ghi thành khoảng 15 giây video.
+                  Timelapse dùng góc camera hiện tại, không di chuyển đầu in. Mỗi bản ghi tối đa 24
+                  giờ, 10.000 ảnh hoặc 1 GB ảnh; thư viện tối đa 5 GB và 100 bản ghi. App dừng ghi
+                  khi đạt giới hạn, giữ video cũ.
+                </p>
+              </div>
+            </section>
+            <div class="section-title">
+              <h2>Thư viện timelapse</h2>
+              <span class="small-label">LƯU TRÊN SERVER</span>
+            </div>
+            <div id="timelapse-list" class="timelapse-list"></div>
+          </div>
+
+          <div id="page-health" class="page-content" hidden>
+            <section class="card health-overview">
+              <div>
+                <h2 id="health-summary" class="health-summary">
+                  Chưa xác minh được tình trạng máy
+                </h2>
+                <p id="health-updated" class="field-help"></p>
+              </div>
+              <button id="diagnostics-run" class="button primary" disabled>
+                Kiểm tra kết nối &amp; trạng thái
+              </button>
+              <p id="diagnostics-result" class="field-help" role="status"></p>
+              <p id="health-error" class="form-error" role="alert"></p>
+            </section>
+            <div class="health-grid">
+              <section class="card">
+                <div class="card-top"><h2>Kết quả kiểm tra</h2></div>
+                <div id="health-checks" class="health-checks"></div>
+              </section>
+              <section class="card">
+                <div class="card-top"><h2>Lỗi in &amp; cảnh báo HMS</h2></div>
+                <div id="fault-list" class="fault-list"></div>
+                <p class="health-note">
+                  Mô tả kỹ thuật lấy từ Bambu bằng tiếng Anh khi có Internet. Nếu không tra được, mã
+                  lỗi và liên kết hướng dẫn vẫn hiển thị. Cảnh báo chỉ hết khi máy xác nhận đã xử
+                  lý.
+                </p>
+              </section>
+              <section class="card health-calibration">
+                <div class="card-top">
+                  <h2>Tự kiểm tra / hiệu chuẩn trên máy</h2>
+                  <button class="text-button" data-go="overview">
+                    Theo dõi &amp; điều khiển máy <svg><use href="#i-arrow" /></svg>
+                  </button>
+                </div>
+                <form id="calibration-form" class="calibration-form">
+                  <p>
+                    Kiểm tra toàn hệ thống chạy đủ cân bàn, bù rung và giảm ồn động cơ. Dùng sau
+                    khi máy báo trục Y lệch hoặc bản in vừa bị hủy. Lau thanh trượt trục Y, dọn
+                    sạch bàn in và để trống vùng chuyển động.
+                  </p>
+                  <button id="system-check" class="button primary" type="button" disabled>
+                    Kiểm tra lại toàn hệ thống
+                  </button>
+                  <p id="system-check-readiness" class="field-help"></p>
+                  <p>
+                    Hoặc chọn từng mục. Máy sẽ tự thực hiện; cần bàn in sạch và vùng chuyển động
+                    thông thoáng.
+                  </p>
+                  <div class="calibration-options">
+                    <label class="checkbox-label"
+                      ><input id="calibration-bedLeveling" type="checkbox" checked />Cân bàn in tự
+                      động</label
+                    >
+                    <label class="checkbox-label"
+                      ><input id="calibration-vibration" type="checkbox" checked />Bù rung</label
+                    >
+                    <label class="checkbox-label"
+                      ><input id="calibration-motorNoise" type="checkbox" checked />Giảm ồn động
+                      cơ</label
+                    >
+                  </div>
+                  <p id="calibration-readiness" class="field-help"></p>
+                  <p id="calibration-status" class="calibration-status" role="status"></p>
+                  <button id="calibration-start" class="button secondary" type="submit" disabled>
+                    Chạy hiệu chuẩn
+                  </button>
+                  <p class="field-help">
+                    App phân biệt yêu cầu đã gửi với trạng thái máy xác nhận. Nếu firmware từ chối
+                    hoặc chưa có phản hồi, kiểm tra màn hình P2S trước khi thử lại.
+                  </p>
+                </form>
+              </section>
+            </div>
+          </div>
+
+          <div id="page-overview" class="page-content">
+            <div class="dashboard-grid">
+              <section class="card printer-card">
+                <div class="card-top">
+                  <div class="card-label">MÁY IN CỦA BẠN</div>
+                  <span class="pill" id="connection-pill"
+                    ><i class="tiny-dot muted-dot"></i> Chưa kết nối</span
+                  >
+                </div>
+                <div class="printer-card-body">
+                  <div class="printer-visual">
+                    <img
+                      src="/printer.svg"
+                      alt="Máy in 3D P2S với AMS"
+                      width="300"
+                      height="285"
+                    /><span class="printer-platform"></span>
+                  </div>
+                  <div class="printer-information">
+                    <span class="model-label">BAMBU LAB</span>
+                    <h2 id="printer-name">P2S Combo</h2>
+                    <span class="device-type">CoreXY · AMS · 256 × 256 × 256 mm</span>
+                    <div class="job-name" id="job-name">Sẵn sàng cho ý tưởng tiếp theo</div>
+                    <p class="job-description" id="job-description">
+                      Kết nối máy in để bắt đầu theo dõi.
+                    </p>
+                    <div class="progress-label">
+                      <span id="job-status">Chưa có dữ liệu</span
+                      ><strong id="job-progress">—<small>%</small></strong>
+                    </div>
+                    <div class="progress-track"><div id="job-progress-bar"></div></div>
+                    <div class="job-metadata">
+                      <span>Lớp in <strong id="job-layers">— / —</strong></span
+                      ><span>Còn lại <strong id="job-remaining">—</strong></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="printer-card-footer">
+                  <span
+                    ><svg><use href="#i-refresh" /></svg
+                    ><span id="last-updated">Chờ kết nối</span></span
+                  ><button id="reconnect" class="text-button">
+                    Kết nối lại <svg><use href="#i-arrow" /></svg>
+                  </button>
+                </div>
+              </section>
+
+              <section class="card camera-card">
+                <div class="card-top">
+                  <h2>
+                    <svg><use href="#i-camera" /></svg> Camera trực tiếp
+                  </h2>
+                  <span class="camera-badge" id="camera-badge">ĐANG TẮT</span>
+                </div>
+                <div class="camera-viewport" id="camera-viewport">
+                  <img id="camera-image" alt="Hình ảnh trực tiếp từ P2S" hidden />
+                  <div class="camera-empty" id="camera-empty">
+                    <div class="camera-empty-icon">
+                      <svg><use href="#i-camera" /></svg>
+                    </div>
+                    <strong>Một góc nhìn vào bản in</strong>
+                    <p id="camera-help">Mở camera khi máy in đã kết nối.</p>
+                    <button id="camera-open" class="button secondary compact">
+                      Mở camera <svg><use href="#i-arrow" /></svg>
+                    </button>
+                  </div>
+                  <button
+                    id="camera-close"
+                    class="icon-button camera-close"
+                    aria-label="Tắt camera"
+                    hidden
+                  >
+                    <svg><use href="#i-close" /></svg></button
+                  ><span class="camera-corner top-left"></span
+                  ><span class="camera-corner bottom-right"></span>
+                </div>
+                <div class="camera-foot">
+                  <span
+                    ><i class="tiny-dot muted-dot" id="camera-dot"></i> P2S · Camera buồng in</span
+                  ><button class="text-button" data-go="timelapse">Ghi timelapse</button>
+                </div>
+                <div id="timelapse-indicator" class="timelapse-indicator" hidden>
+                  ĐANG GHI TIMELAPSE
+                </div>
+              </section>
+
+              <section class="temperature-grid">
+                <article class="card temperature-card">
+                  <div class="metric-heading">
+                    <span>Đầu phun</span><svg><use href="#i-temp" /></svg>
+                  </div>
+                  <div class="metric-value">
+                    <strong id="nozzle-current">—</strong><span>°C</span
+                    ><span class="metric-target">/ <b id="nozzle-target">—</b>°</span>
+                  </div>
+                  <div class="metric-bottom">
+                    <span class="metric-caption">Nhiệt độ mục tiêu</span
+                    ><button class="text-button" data-temperature="nozzle">Điều chỉnh ↗</button>
+                  </div>
+                </article>
+                <article class="card temperature-card">
+                  <div class="metric-heading">
+                    <span>Bàn in</span><svg><use href="#i-grid" /></svg>
+                  </div>
+                  <div class="metric-value">
+                    <strong id="bed-current">—</strong><span>°C</span
+                    ><span class="metric-target">/ <b id="bed-target">—</b>°</span>
+                  </div>
+                  <div class="metric-bottom">
+                    <span class="metric-caption">Nhiệt độ mục tiêu</span
+                    ><button class="text-button" data-temperature="bed">Điều chỉnh ↗</button>
+                  </div>
+                </article>
+                <article class="card temperature-card">
+                  <div class="metric-heading">
+                    <span>Buồng in</span><svg><use href="#i-cube" /></svg>
+                  </div>
+                  <div class="metric-value">
+                    <strong id="chamber-current">—</strong><span>°C</span>
+                  </div>
+                  <div class="metric-bottom">
+                    <span class="metric-caption">Nhiệt độ đo được</span
+                    ><span class="metric-neutral">THỤ ĐỘNG</span>
+                  </div>
+                </article>
+              </section>
+
+              <section class="card control-card">
+                <div class="card-top">
+                  <h2>Điều khiển nhanh</h2>
+                  <svg class="subtle-icon"><use href="#i-settings" /></svg>
+                </div>
+                <div class="control-content">
+                  <div class="control-buttons">
+                    <button id="pause-button" class="button secondary" disabled>
+                      <svg><use href="#i-pause" /></svg>Tạm dừng</button
+                    ><button id="resume-button" class="button secondary" disabled>
+                      <svg><use href="#i-play" /></svg>Tiếp tục</button
+                    ><button id="stop-button" class="button danger" disabled>
+                      <svg><use href="#i-stop" /></svg>Dừng in
+                    </button>
+                  </div>
+                  <div class="control-row">
+                    <div><strong>Tốc độ in</strong><span>Chế độ hoạt động</span></div>
+                    <span id="speed-label" class="small-value">—</span>
+                  </div>
+                  <div class="speed-buttons" role="group" aria-label="Tốc độ in">
+                    <button data-speed="1" disabled>Êm ái<span>50%</span></button
+                    ><button data-speed="2" disabled>Tiêu chuẩn<span>100%</span></button
+                    ><button data-speed="3" disabled>Thể thao<span>124%</span></button
+                    ><button data-speed="4" disabled>Tối đa<span>166%</span></button>
+                  </div>
+                  <div class="light-row">
+                    <span class="light-symbol"
+                      ><svg><use href="#i-light" /></svg
+                    ></span>
+                    <div><strong>Đèn buồng in</strong><span>Chiếu sáng không gian in</span></div>
+                    <button
+                      id="light-toggle"
+                      class="toggle"
+                      role="switch"
+                      aria-checked="false"
+                      aria-label="Đèn buồng in"
+                      disabled
+                    >
+                      <span></span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="card ams-card">
+                <div class="card-top">
+                  <h2>Vật liệu trong AMS</h2>
+                  <button class="text-button" data-go="materials">
+                    Xem tất cả <svg><use href="#i-arrow" /></svg>
+                  </button>
+                </div>
+                <div id="ams-overview" class="ams-overview"></div>
+                <div class="ams-footer">
+                  <span id="ams-humidity">Độ ẩm <strong>—</strong></span
+                  ><span>HỆ THỐNG VẬT LIỆU TỰ ĐỘNG</span>
+                </div>
+              </section>
+              <section class="card activity-card">
+                <div class="card-top">
+                  <h2>Hoạt động gần đây</h2>
+                  <span class="small-label">PHIÊN HIỆN TẠI</span>
+                </div>
+                <div id="activity-list" class="activity-list">
+                  <div class="empty-activity">Các thay đổi trạng thái sẽ xuất hiện tại đây.</div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div id="page-files" class="page-content" hidden>
+            <section class="card upload-card">
+              <input type="file" id="file-input" accept=".3mf" hidden />
+              <div class="upload-symbol">
+                <svg><use href="#i-upload" /></svg>
+              </div>
+              <div>
+                <h2>Ý tưởng tiếp theo, sẵn sàng để in.</h2>
+                <p>
+                  Tải tệp .gcode.3mf đã slice cho P2S trong Bambu Studio hoặc OrcaSlicer. Tối đa 200
+                  MB.
+                </p>
+              </div>
+              <button id="upload-button" class="button primary">
+                <svg><use href="#i-plus" /></svg>Thêm tệp in
+              </button>
+            </section>
+            <section class="card queue-controls">
+              <div>
+                <h2>In lần lượt tất cả tệp</h2>
+                <p>
+                  Theo tên tệp 01 → 02 → 03…; in xong một plate mới chuyển plate tiếp theo. Máy có
+                  cơ chế tự dọn bàn.
+                </p>
+                <p>
+                  Khay vật liệu lấy theo hậu tố AMS1, AMS2… trong tên tệp. Đóng trang vẫn tiếp tục
+                  hàng đợi; khởi động lại server sẽ dừng hàng đợi.
+                </p>
+              </div>
+              <button id="print-all-button" class="button primary" disabled>
+                <svg><use href="#i-play" /></svg>In tất cả
+              </button>
+              <p id="print-readiness" class="field-help" role="status"></p>
+              <p id="queue-error" class="form-error" role="alert"></p>
+            </section>
+            <section id="queue-status" class="card queue-controls" hidden aria-live="polite">
+              <div>
+                <h2>Hàng đợi in</h2>
+                <p id="queue-message"></p>
+                <p id="queue-progress"></p>
+              </div>
+              <button id="cancel-queue-button" class="button secondary">Hủy hàng đợi</button>
+              <ol id="queue-items"></ol>
+            </section>
+            <div class="section-title">
+              <h2>Thư viện tệp</h2>
+              <span id="library-summary">0 tệp</span>
+            </div>
+            <div id="projects-list" class="projects-list"></div>
+          </div>
+          <div id="page-usb" class="page-content" hidden>
+            <section class="card queue-controls" id="usb-card">
+              <div>
+                <h2>Tệp trên USB máy in</h2>
+                <p>
+                  Danh sách đọc trực tiếp từ USB của P2S. Xóa từng tệp sau khi xác nhận. App không
+                  xóa thư mục, và không xóa tệp đang được bản in dùng.
+                </p>
+                <p id="usb-status" class="field-help" role="status">Đang chờ đọc USB.</p>
+                <p id="usb-error" class="form-error" role="alert"></p>
+              </div>
+              <button id="usb-refresh" class="button secondary" type="button">Kiểm tra lại</button>
+            </section>
+            <div id="usb-path" class="usb-crumbs" hidden></div>
+            <div id="usb-list" class="usb-list"></div>
+          </div>
+          <div id="page-materials" class="page-content" hidden>
+            <div class="material-explainer">
+              <svg><use href="#i-spool" /></svg>
+              <p>
+                Theo dõi vật liệu và độ ẩm từng hộp AMS. Thông tin cập nhật trực tiếp từ máy in.
+              </p>
+            </div>
+            <div id="ams-full" class="materials-grid"></div>
+          </div>
+          <footer class="workspace-footer">
+            <span
+              ><span class="footer-mark">◈</span> PRINTROOM <span>/</span> Làm chủ không gian sáng
+              tạo.</span
+            ><span id="footer-connection">ĐANG CHỜ MÁY IN</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form">
+        <div class="dialog-heading">
+          <div>
+            <div class="eyebrow">THIẾT LẬP</div>
+            <h2>Kết nối P2S của bạn<span>.</span></h2>
+          </div>
+          <button type="button" class="icon-button" data-close="settings-dialog" aria-label="Đóng">
+            <svg><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="dialog-description">
+          Trên P2S, vào Cài đặt → LAN Only, bật <strong>LAN Only</strong> và
+          <strong>Developer Mode</strong>. Bật thêm <strong>LAN Only Liveview</strong> để xem
+          camera. Chế độ LAN Only ngắt Bambu Cloud và Bambu Handy.
+        </p>
+        <div class="form-grid">
+          <label class="full-field"
+            >Tên máy in<input
+              name="name"
+              maxlength="60"
+              placeholder="P2S Combo"
+              autocomplete="off" /></label
+          ><label
+            >Địa chỉ IP<input
+              name="host"
+              type="text"
+              required
+              placeholder="192.168.1.25"
+              inputmode="text"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              autocomplete="off" /></label
+          ><label
+            >Số serial<input
+              name="serial"
+              required
+              minlength="8"
+              maxlength="32"
+              pattern="[A-Za-z0-9]{8,32}"
+              placeholder="Lấy từ mục thông tin máy"
+              autocomplete="off" /></label
+          ><label class="full-field"
+            >Access Code<input
+              name="accessCode"
+              type="password"
+              maxlength="8"
+              placeholder="8 ký tự từ màn hình máy in"
+              autocomplete="off"
+            /><span class="field-help" id="access-code-help"
+              >Chỉ lưu ở server, không hiển thị lại trên web.</span
+            ></label
+          >
+        </div>
+        <div class="settings-note">
+          Ubuntu cần truy cập được IP máy in qua LAN hoặc VPN. App kết nối trực tiếp đến thiết bị.
+        </div>
+        <p id="settings-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="button secondary" data-close="settings-dialog">Để sau</button
+          ><button type="submit" class="button primary">
+            Lưu & kết nối <svg><use href="#i-arrow" /></svg>
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog">
+      <div class="dialog-heading">
+        <h2 id="confirm-title">Xác nhận</h2>
+        <button class="icon-button" data-close="confirm-dialog" aria-label="Đóng">
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <p id="confirm-description" class="dialog-description"></p>
+      <div class="dialog-actions">
+        <button class="button secondary" id="confirm-cancel">Quay lại</button
+        ><button class="button primary" id="confirm-ok">Xác nhận</button>
+      </div>
+    </dialog>
+    <dialog id="temperature-dialog">
+      <form id="temperature-form">
+        <div class="dialog-heading">
+          <h2 id="temperature-title">Nhiệt độ mục tiêu</h2>
+          <button
+            type="button"
+            class="icon-button"
+            data-close="temperature-dialog"
+            aria-label="Đóng"
+          >
+            <svg><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="dialog-description">
+          Máy in sẽ gia nhiệt đến mức đã chọn. Đặt 0°C để tắt gia nhiệt.
+        </p>
+        <label
+          >Nhiệt độ (°C)<input id="temperature-value" type="number" min="0" step="1" required
+        /></label>
+        <div class="dialog-actions">
+          <button type="button" class="button secondary" data-close="temperature-dialog">
+            Quay lại</button
+          ><button class="button primary" type="submit">Gửi yêu cầu</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="print-dialog">
+      <form id="print-form">
+        <div class="dialog-heading">
+          <div>
+            <div class="eyebrow">TÁC VỤ MỚI</div>
+            <h2>Chuẩn bị bản in<span>.</span></h2>
+          </div>
+          <button type="button" class="icon-button" data-close="print-dialog" aria-label="Đóng">
+            <svg><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p id="print-project-name" class="dialog-description"></p>
+        <div class="form-grid">
+          <label>Plate<select id="print-plate"></select></label
+          ><label
+            >Nguồn vật liệu<select id="print-source">
+              <option value="ams">Hệ thống AMS</option>
+              <option value="external">Cuộn ngoài</option>
+            </select></label
+          >
+          <label id="print-mapping-mode-field" class="full-field"
+            >Cách chọn khay<select id="print-mapping-mode">
+              <option value="manual">Tự chọn khay A1–A4</option>
+              <option value="auto">Tự động theo màu</option>
+            </select></label
+          >
+        </div>
+        <div id="print-mapping" class="print-mapping"></div>
+        <p id="print-mapping-summary" class="field-help" role="status" aria-live="polite"></p>
+        <label class="checkbox-label"
+          ><input type="checkbox" id="print-confirmation" required /><span
+            >Tệp đã slice đúng P2S, đầu phun/vật liệu phù hợp, nguồn vật liệu đã chọn được nạp đúng
+            cuộn và bàn in đã trống, sẵn sàng.</span
+          ></label
+        >
+        <p class="field-help">
+          Tự chọn: dùng khay đã chọn, kể cả khi chưa khai báo hoặc khác màu trong tệp; kiểm tra cuộn
+          đã nạp. Tự động: đối chiếu màu và loại nhựa với khai báo AMS trên máy in.
+        </p>
+        <p id="print-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="button secondary" data-close="print-dialog">Quay lại</button
+          ><button type="submit" class="button primary">
+            <svg><use href="#i-play" /></svg>Gửi & bắt đầu in
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="timelapse-player-dialog">
+      <div class="dialog-heading">
+        <h2 id="timelapse-player-title">Video timelapse</h2>
+        <button
+          class="icon-button"
+          type="button"
+          data-close="timelapse-player-dialog"
+          aria-label="Đóng video"
+        >
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <video id="timelapse-player" controls playsinline preload="metadata"></video>
+    </dialog>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>

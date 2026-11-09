@@ -1,0 +1,59 @@
+name: p2s-control
+services:
+  init-data:
+    image: node:22-alpine
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    command: ["node", "-e", "const fs=require('node:fs');for(const p of ['/data','/camera']){fs.mkdirSync(p,{recursive:true});fs.chmodSync(p,0o700);fs.chownSync(p,1000,1000)}"]
+    volumes:
+      - printer-data:/data
+      - camera-data:/camera
+  web:
+    build: .
+    image: p2s-control:local
+    restart: unless-stopped
+    init: true
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-3080}:3080"
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      APP_PASSWORD_BASE64: ${APP_PASSWORD_BASE64:-}
+      DATA_DIR: /app/data
+      CAMERA_CONFIG_DIR: /app/camera
+      CAMERA_URL: http://camera:1984
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - printer-data:/app/data
+      - camera-data:/app/camera
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+  camera:
+    image: alexxit/go2rtc:1.9.15
+    restart: unless-stopped
+    user: "1000:1000"
+    init: true
+    depends_on:
+      web:
+        condition: service_healthy
+        restart: true
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while [ ! -f /config/go2rtc.yaml ]; do sleep 1; done; exec go2rtc -config /config/go2rtc.yaml"]
+    volumes:
+      - camera-data:/config
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+volumes:
+  printer-data:
+  camera-data:
