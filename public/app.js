@@ -44,6 +44,9 @@ const UI = {
   timelapseBusy: false,
   timelapseSettingsKey: '',
   projects: [],
+  folders: [],
+  folderId: '',
+  uploadBusy: false,
   usb: { path: '/', parent: null, entries: [], truncated: false, loaded: false },
   usbBusy: false,
   queue: { active: false, status: 'idle', items: [] },
@@ -124,6 +127,8 @@ function showLogin() {
   UI.timelapseBusy = false;
   UI.timelapseSettingsKey = '';
   UI.projects = [];
+  UI.folders = [];
+  UI.folderId = '';
   UI.usb = { path: '/', parent: null, entries: [], truncated: false, loaded: false };
   UI.usbBusy = false;
   UI.queue = { active: false, status: 'idle', items: [] };
@@ -818,19 +823,47 @@ async function cameraOpen() {
   }
 }
 async function loadProjects() {
-  UI.projects = (await api('/projects')).sort((a, b) =>
-    a.name.localeCompare(b.name, 'vi', { numeric: true }),
-  );
+  const [projects, folders] = await Promise.all([api('/projects'), api('/projects/folders')]);
+  UI.projects = projects.sort((a, b) => a.name.localeCompare(b.name, 'vi', { numeric: true }));
+  UI.folders = folders;
+  if (UI.folderId && !folders.some((folder) => folder.id === UI.folderId)) UI.folderId = '';
+  renderLibrary();
+}
+function folderOptions(selected = '') {
+  return [{ id: '', name: 'Thư viện gốc' }, ...UI.folders]
+    .map(
+      (folder) =>
+        `<option value="${escape(folder.id)}" ${folder.id === selected ? 'selected' : ''}>${escape(folder.name)}</option>`,
+    )
+    .join('');
+}
+function openLibraryFolder(id) {
+  UI.folderId = id;
+  renderLibrary();
+}
+function renderLibrary() {
+  const projects = UI.projects.filter((project) => (project.folderId || '') === UI.folderId);
+  const current = UI.folders.find((folder) => folder.id === UI.folderId);
   $('#file-count').textContent = UI.projects.length;
-  $('#library-summary').textContent = `${UI.projects.length} tệp`;
-  $('#projects-list').innerHTML = UI.projects.length
-    ? UI.projects
+  $('#library-title').textContent = current?.name || 'Thư viện gốc';
+  $('#library-summary').textContent =
+    `${projects.length} tệp · ${UI.projects.length} tệp toàn thư viện`;
+  $('#upload-folder').innerHTML = folderOptions(UI.folderId);
+  $('#upload-folder').value = UI.folderId;
+  $('#library-folders').innerHTML = [{ id: '', name: 'Thư viện gốc' }, ...UI.folders]
+    .map((folder) => {
+      const count = UI.projects.filter((project) => (project.folderId || '') === folder.id).length;
+      return `<button type="button" class="card library-folder" data-library-folder="${escape(folder.id)}" data-drop-folder="${escape(folder.id)}" aria-pressed="${folder.id === UI.folderId}">${icon('folder')}<span><strong>${escape(folder.name)}</strong><small>${count} tệp</small></span></button>`;
+    })
+    .join('');
+  $('#projects-list').innerHTML = projects.length
+    ? projects
         .map(
           (project) =>
-            `<article class="card project-card"><div class="project-art"><img src="${API_BASE}/projects/${project.id}/preview" alt="Xem trước ${escape(project.name)}" onerror="this.remove()" />${icon('cube')}</div><h3 title="${escape(project.name)}">${escape(project.name)}</h3><div class="project-meta"><span>${project.plates.length} plate</span><span>${(project.size / 1024 ** 2).toFixed(1)} MB</span><span>${new Date(project.addedAt).toLocaleDateString('vi-VN')}</span></div><div class="project-actions"><button class="button secondary project-print" data-project="${project.id}" ${UI.queue.active ? 'disabled' : ''}>${icon('play')} In riêng</button><button class="text-button" data-delete="${project.id}">Xóa</button></div></article>`,
+            `<article class="card project-card" draggable="true" data-drag-project="${project.id}"><div class="project-art"><img src="${API_BASE}/projects/${project.id}/preview" draggable="false" alt="Xem trước ${escape(project.name)}" onerror="this.remove()" />${icon('cube')}</div><h3 title="${escape(project.name)}">${escape(project.name)}</h3><div class="project-meta"><span>${project.plates.length} plate</span><span>${(project.size / 1024 ** 2).toFixed(1)} MB</span><span>${new Date(project.addedAt).toLocaleDateString('vi-VN')}</span></div><div class="project-actions"><button class="button secondary project-print" data-project="${project.id}" ${UI.queue.active ? 'disabled' : ''}>${icon('play')} In riêng</button><button class="text-button" data-delete="${project.id}">Xóa</button></div><label class="project-folder-select">Chuyển tới thư mục<select data-move-project="${project.id}">${folderOptions(project.folderId || '')}</select></label></article>`,
         )
         .join('')
-    : `<div class="library-empty">${icon('file')}<h3>Bản in tiếp theo bắt đầu ở đây.</h3><p>Thêm một tệp .gcode.3mf đã slice cho P2S để lưu và gửi tới máy in.</p></div>`;
+    : `<div class="library-empty">${icon('file')}<h3>${current ? 'Thư mục chưa có tệp.' : 'Bản in tiếp theo bắt đầu ở đây.'}</h3><p>Kéo tệp vào thư mục phía trên hoặc chọn thư mục đích rồi bấm Thêm tệp in.</p></div>`;
   renderPrintControls();
   $$('.project-print').forEach((button) =>
     button.addEventListener('click', () => openPrint(button.dataset.project)),
@@ -942,7 +975,12 @@ async function startPrintQueue() {
 }
 async function uploadFile() {
   const files = [...($('#file-input').files || [])];
+  return uploadFiles(files, $('#upload-folder').value || '');
+}
+async function uploadFiles(files, folderId) {
   if (!files.length) return;
+  if (UI.uploadBusy) throw new Error('Đang tải tệp. Đợi hoàn tất trước khi thêm tệp khác.');
+  UI.uploadBusy = true;
   const failures = [];
   let added = 0;
   try {
@@ -956,6 +994,7 @@ async function uploadFile() {
         if (file.size > 200 * 1024 ** 2) throw new Error('Tệp vượt quá 200 MB.');
         const form = new FormData();
         form.append('file', file);
+        form.append('folderId', folderId);
         await api('/projects', { method: 'POST', body: form, timeout: 180000 });
         added += 1;
       } catch (error) {
@@ -968,9 +1007,51 @@ async function uploadFile() {
     }
     if (failures.length) throw new Error(failures.join('\n'));
   } finally {
+    UI.uploadBusy = false;
     $('#upload-button').disabled = false;
     $('#upload-button').innerHTML = `${icon('plus')} Thêm tệp in`;
     $('#file-input').value = '';
+  }
+}
+async function moveProject(id, folderId) {
+  const project = UI.projects.find((item) => item.id === id);
+  if (!project || (project.folderId || '') === folderId) return;
+  await api(`/projects/${id}/folder`, { method: 'PATCH', body: { folderId: folderId || null } });
+  await loadProjects();
+  toast('Đã chuyển tệp tới thư mục.');
+}
+async function handleLibraryDrop(event) {
+  const target = event.target.closest('[data-drop-folder]');
+  if (!target) return;
+  event.preventDefault();
+  target.classList.remove('drag-over');
+  const folderId = target.dataset.dropFolder;
+  const files = [...(event.dataTransfer.files || [])];
+  if (files.length) {
+    await uploadFiles(files, folderId);
+    return;
+  }
+  const id = event.dataTransfer.getData('application/x-p2s-project');
+  if (id) await moveProject(id, folderId);
+}
+async function createLibraryFolder(event) {
+  event.preventDefault();
+  const button = $('#folder-form button[type=submit]');
+  button.disabled = true;
+  $('#folder-error').textContent = '';
+  try {
+    const folder = await api('/projects/folders', {
+      method: 'POST',
+      body: { name: $('#folder-name').value },
+    });
+    UI.folderId = folder.id;
+    await loadProjects();
+    $('#folder-dialog').close();
+    toast('Đã tạo thư mục.');
+  } catch (error) {
+    $('#folder-error').textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 function openPrint(id) {
@@ -1166,6 +1247,7 @@ $('#heading-action').addEventListener(
   'click',
   action(() => {
     if (UI.page === 'files') {
+      if (UI.uploadBusy) return;
       $('#file-input').click();
       return;
     }
@@ -1382,6 +1464,61 @@ $('#cancel-queue-button').addEventListener(
 );
 $('#upload-button').addEventListener('click', () => $('#file-input').click());
 $('#file-input').addEventListener('change', action(uploadFile));
+$('#create-folder-button').addEventListener('click', () => {
+  $('#folder-name').value = '';
+  $('#folder-error').textContent = '';
+  $('#folder-dialog').showModal();
+  $('#folder-name').focus();
+});
+$('#folder-form').addEventListener('submit', createLibraryFolder);
+$('#library-folders').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-library-folder]');
+  if (button) openLibraryFolder(button.dataset.libraryFolder);
+});
+$('#projects-list').addEventListener(
+  'change',
+  action(async (event) => {
+    const select = event.target.closest('[data-move-project]');
+    if (!select) return;
+    select.disabled = true;
+    try {
+      await moveProject(select.dataset.moveProject, select.value);
+    } catch (error) {
+      select.value =
+        UI.projects.find((item) => item.id === select.dataset.moveProject)?.folderId || '';
+      throw error;
+    } finally {
+      select.disabled = false;
+    }
+  }),
+);
+$('#projects-list').addEventListener('dragstart', (event) => {
+  if (event.target.closest('button, select, label')) {
+    event.preventDefault();
+    return;
+  }
+  const card = event.target.closest('[data-drag-project]');
+  if (!card) return;
+  event.dataTransfer.setData('application/x-p2s-project', card.dataset.dragProject);
+  event.dataTransfer.effectAllowed = 'move';
+});
+$('#library-folders').addEventListener('dragover', (event) => {
+  const target = event.target.closest('[data-drop-folder]');
+  if (!target) return;
+  const types = [...event.dataTransfer.types];
+  if (!types.includes('Files') && !types.includes('application/x-p2s-project')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = types.includes('Files') ? 'copy' : 'move';
+  target.classList.add('drag-over');
+});
+$('#library-folders').addEventListener('dragleave', (event) => {
+  const target = event.target.closest('[data-drop-folder]');
+  if (target && !target.contains(event.relatedTarget)) target.classList.remove('drag-over');
+});
+$('#library-folders').addEventListener('drop', action(handleLibraryDrop));
+$('#projects-list').addEventListener('dragend', () => {
+  $$('.drag-over').forEach((target) => target.classList.remove('drag-over'));
+});
 $('#print-plate').addEventListener('change', renderMapping);
 $('#print-source').addEventListener('change', renderMapping);
 $('#print-mapping-mode').addEventListener('change', renderMapping);

@@ -78,6 +78,92 @@ test('the file picker uploads every selected sliced file and keeps going after o
   assert.match(html, /id="file-input"[^>]*\bmultiple\b/);
 });
 
+test('library navigation filters files and offers a destination for upload and moving files', async () => {
+  const f = await ui();
+  vm.runInContext(
+    `
+    UI.folderId = 'folder-a';
+    api = async url => url === '/projects/folders' ? [
+      {id: 'folder-a', name: 'Batman <parts>'}, {id: 'folder-b', name: 'Other'}
+    ] : [
+      {id: 'old', name: 'Legacy', plates: [], size: 12, addedAt: '2026-11-08'},
+      {id: 'inside', name: 'Head', folderId: 'folder-a', plates: [], size: 10, addedAt: '2026-11-08'},
+      {id: 'outside', name: 'Base', folderId: 'folder-b', plates: [], size: 10, addedAt: '2026-11-08'}
+    ];
+  `,
+    f.context,
+  );
+  await vm.runInContext('loadProjects()', f.context);
+  assert.match(f.node('#projects-list').innerHTML, /Head/);
+  assert.doesNotMatch(f.node('#projects-list').innerHTML, /Legacy|Base/);
+  assert.equal(f.node('#upload-folder').value, 'folder-a');
+  assert.match(f.node('#upload-folder').innerHTML, /Batman &lt;parts&gt;/);
+  assert.match(f.node('#projects-list').innerHTML, /data-move-project="inside"/);
+  assert.match(f.node('#library-folders').innerHTML, /data-drop-folder="folder-b"/);
+  vm.runInContext("openLibraryFolder('')", f.context);
+  assert.match(f.node('#projects-list').innerHTML, /Legacy/);
+  assert.doesNotMatch(f.node('#projects-list').innerHTML, />Head<|>Base</);
+  assert.equal(f.node('#upload-folder').value, '');
+});
+
+test('file picker sends the selected folder with every upload', async () => {
+  const f = await ui();
+  f.context.FormData = FormData;
+  f.context.sent = [];
+  f.node('#upload-folder').value = 'folder-b';
+  f.node('#file-input').files = [new File(['a'], '01.gcode.3mf'), new File(['b'], '02.gcode.3mf')];
+  vm.runInContext(
+    `
+    UI.folderId = 'folder-a';
+    api = async (_url, options) => { sent.push([options.body.get('file').name, options.body.get('folderId')]); return {}; };
+    loadProjects = async () => {}; toast = () => {};
+  `,
+    f.context,
+  );
+  await vm.runInContext('uploadFile()', f.context);
+  assert.deepEqual(
+    f.context.sent.map((item) => Array.from(item)),
+    [
+      ['01.gcode.3mf', 'folder-b'],
+      ['02.gcode.3mf', 'folder-b'],
+    ],
+  );
+});
+
+test('dropping local files uploads into the drop target and dropping an existing file moves it', async () => {
+  const f = await ui();
+  f.context.FormData = FormData;
+  f.context.sent = [];
+  vm.runInContext(
+    `
+    UI.projects = [{ id: 'inside', folderId: 'folder-a', name: 'Head' }];
+    api = async (url, options) => {
+      sent.push({url, method: options.method, folderId: options.body instanceof FormData ? options.body.get('folderId') : options.body.folderId});
+      return {};
+    };
+    loadProjects = async () => {}; toast = () => {};
+  `,
+    f.context,
+  );
+  let prevented = 0;
+  const target = { dataset: { dropFolder: 'folder-b' }, classList: { remove() {} } };
+  f.context.dropEvent = {
+    preventDefault() {
+      prevented++;
+    },
+    target: { closest: () => target },
+    dataTransfer: { files: [new File(['a'], '01.gcode.3mf')], getData: () => '' },
+  };
+  await vm.runInContext('handleLibraryDrop(dropEvent)', f.context);
+  f.context.dropEvent.dataTransfer = { files: [], getData: () => 'inside' };
+  await vm.runInContext('handleLibraryDrop(dropEvent)', f.context);
+  assert.equal(prevented, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.context.sent)), [
+    { url: '/projects', method: 'POST', folderId: 'folder-b' },
+    { url: '/projects/inside/folder', method: 'PATCH', folderId: 'folder-b' },
+  ]);
+});
+
 test('file library has one action to start every file and a visible readiness explanation', async () => {
   const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
   assert.match(html, /id="print-all-button"/);

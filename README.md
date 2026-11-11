@@ -114,6 +114,12 @@ Access Code mã hóa AES-256-GCM trong `printer.json`; khóa nằm trong cùng v
 
 Đổi mật khẩu: xóa dòng `APP_PASSWORD_BASE64` cũ trong `.env` rồi nhập giá trị mới theo cách an toàn, hoặc dừng app, xóa riêng `.env` và chạy `./start.sh` để đặt lại. Không xóa Docker volume. Có thể dùng biến `APP_PASSWORD` thay `APP_PASSWORD_BASE64` nếu quản lý bằng secret của hệ thống triển khai. Base64 chỉ giúp escape ký tự an toàn, không phải mã hóa mật khẩu.
 
+## Sắp xếp thư viện tệp
+
+Trong trang **Tệp in**, bấm **Tạo thư mục** để gom các tệp cùng bộ vào thư mục một cấp. Bấm thư mục để xem tệp; tệp cũ nằm ở **Thư viện gốc**. Kéo thẻ tệp lên thư mục để chuyển, hoặc dùng ô **Chuyển tới thư mục** trên từng tệp khi dùng điện thoại.
+
+Kéo một hoặc nhiều file `.gcode.3mf` từ máy tính vào thẻ thư mục để upload trực tiếp. Khi bấm **Thêm tệp in**, chọn đích trong ô **Upload vào thư mục**; mặc định là thư mục đang mở. Thư mục và vị trí tệp được lưu trên server. **In tất cả** vẫn in toàn bộ thư viện, gồm mọi thư mục.
+
 ## Phát triển và kiểm thử
 
 ```bash

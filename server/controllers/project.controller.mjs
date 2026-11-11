@@ -10,6 +10,18 @@ export class ProjectController {
     res.json(await this.projects.list());
   };
 
+  folders = async (_req, res) => {
+    res.json(await this.projects.listFolders());
+  };
+
+  createFolder = async (req, res) => {
+    res.status(201).json(await this.projects.createFolder(req.body));
+  };
+
+  move = async (req, res) => {
+    res.json(await this.projects.move(req.params.id, req.body));
+  };
+
   preview = async (req, res) => {
     const image = await this.projects.preview(req.params.id);
     res.setHeader('Content-Type', image.type);
@@ -21,7 +33,7 @@ export class ProjectController {
   store = async (req, res) => {
     if (!req.file) throw new AppError('Chưa chọn tệp in.');
     try {
-      res.status(201).json(await this.projects.add(req.file));
+      res.status(201).json(await this.projects.add(req.file, req.body?.folderId));
     } finally {
       await rm(req.file.path, { force: true });
     }

@@ -17,6 +17,7 @@ export class ProjectModel {
 
   constructor(folder) {
     this.folder = folder;
+    this.operations = new Map();
   }
 
   file(id, extension) {
@@ -61,9 +62,28 @@ export class ProjectModel {
     return project;
   }
 
-  async remove(id) {
-    await this.get(id);
-    await rm(this.file(id, 'json'));
-    await rm(this.file(id, 'gcode.3mf'), { force: true });
+  withProjectLock(id, operation) {
+    const previous = this.operations.get(id) || Promise.resolve();
+    const current = previous.catch(() => {}).then(operation);
+    this.operations.set(id, current);
+    return current.finally(() => {
+      if (this.operations.get(id) === current) this.operations.delete(id);
+    });
+  }
+
+  remove(id) {
+    return this.withProjectLock(id, async () => {
+      await this.get(id);
+      await rm(this.file(id, 'json'));
+      await rm(this.file(id, 'gcode.3mf'), { force: true });
+    });
+  }
+
+  move(id, folderId) {
+    return this.withProjectLock(id, async () => {
+      const project = { ...(await this.get(id)), folderId };
+      await atomicWrite(this.file(id, 'json'), JSON.stringify(project));
+      return project;
+    });
   }
 }

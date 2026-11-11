@@ -26,6 +26,9 @@ Base URL: `/api/v1`. Các phản hồi JSON giữ định dạng hiện có; cam
 | Máy in | POST | `/api/v1/printer/diagnostics` | `200`, kết quả kiểm tra và `lastCheck` |
 | Tệp in | GET | `/api/v1/projects` | `200`, mảng metadata tệp lưu trên server |
 | Tệp in | POST | `/api/v1/projects` | `201`, metadata tệp `.gcode.3mf` đã kiểm tra |
+| Thư mục | GET | `/api/v1/projects/folders` | `200`, mảng `{ id, name }` |
+| Thư mục | POST | `/api/v1/projects/folders` | `201`, thư mục mới `{ id, name }` |
+| Tệp in | PATCH | `/api/v1/projects/:id/folder` | `200`, metadata sau khi chuyển thư mục |
 | Tệp in | DELETE | `/api/v1/projects/:id` | `200 { "ok": true }`, xóa khỏi thư viện server |
 | Tệp in | POST | `/api/v1/projects/:id/start` | `202 { "ok": true, "message": "..." }` |
 | Hàng đợi | GET | `/api/v1/projects/queue` | `200`, trạng thái và danh sách lượt in |
@@ -111,7 +114,11 @@ Khi hiệu chuẩn đang hoạt động, in riêng/hàng đợi/đổi cấu hì
 
 ### Thư viện và bắt đầu in
 
-`POST /api/v1/projects`: form-data `file` là `.gcode.3mf` đã slice, tối đa 200 MB. Server đọc ZIP/XML, yêu cầu có plate G-code và metadata. Response có `id`, `name`, `size`, `addedAt`, `plates`. Mỗi plate có `number`, `filamentCount`, `filaments`, `seconds`.
+`POST /api/v1/projects`: form-data `file` là `.gcode.3mf` đã slice, tối đa 200 MB; trường `folderId` tùy chọn chỉ thư mục đích, bỏ qua hoặc để rỗng để lưu ở thư viện gốc. Server đọc ZIP/XML, yêu cầu có plate G-code và metadata. Response có `id`, `name`, `size`, `addedAt`, `plates`, `folderId` (`null` ở thư viện gốc). Tệp cũ chưa có `folderId` được coi là nằm ở gốc. Mỗi plate có `number`, `filamentCount`, `filaments`, `seconds`.
+
+`GET /api/v1/projects/folders` trả danh sách thư mục một cấp, sắp xếp theo tên. `POST /api/v1/projects/folders` nhận `{ "name": "Batman" }`; tên có 1–80 ký tự sau khi bỏ khoảng trắng hai đầu, không chứa dấu `/`, `\`, ký tự điều khiển hoặc chỉ là `.`/`..`. Tên trùng không phân biệt hoa/thường trả `409`; dữ liệu sai trả `400`.
+
+`PATCH /api/v1/projects/:id/folder` nhận `{ "folderId": "<id-thu-muc>" }` hoặc `{ "folderId": null }` để chuyển về gốc. Thư mục hoặc tệp không tồn tại trả `404`. Chuyển thư mục giữ nguyên ID, metadata in và nội dung tệp. Cả tạo thư mục, chuyển tệp và upload đều yêu cầu đăng nhập và kiểm tra cùng origin. Danh sách thư mục nằm trong `project-folders/` của volume dữ liệu; phân loại nằm trong metadata mỗi tệp, được giữ qua khởi động lại. Hàng đợi in tất cả vẫn lấy toàn bộ thư viện, gồm các thư mục.
 
 `POST /api/v1/projects/:id/start`
 

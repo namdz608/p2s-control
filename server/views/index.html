@@ -66,6 +66,11 @@
         <symbol id="i-upload" viewBox="0 0 24 24">
           <path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5" />
         </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24">
+          <path
+            d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"
+          />
+        </symbol>
         <symbol id="i-refresh" viewBox="0 0 24 24">
           <path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" />
         </symbol>
@@ -324,9 +329,9 @@
                 </div>
                 <form id="calibration-form" class="calibration-form">
                   <p>
-                    Kiểm tra toàn hệ thống chạy đủ cân bàn, bù rung và giảm ồn động cơ. Dùng sau
-                    khi máy báo trục Y lệch hoặc bản in vừa bị hủy. Lau thanh trượt trục Y, dọn
-                    sạch bàn in và để trống vùng chuyển động.
+                    Kiểm tra toàn hệ thống chạy đủ cân bàn, bù rung và giảm ồn động cơ. Dùng sau khi
+                    máy báo trục Y lệch hoặc bản in vừa bị hủy. Lau thanh trượt trục Y, dọn sạch bàn
+                    in và để trống vùng chuyển động.
                   </p>
                   <button id="system-check" class="button primary" type="button" disabled>
                     Kiểm tra lại toàn hệ thống
@@ -572,16 +577,23 @@
                   OrcaSlicer. Mỗi tệp tối đa 200 MB.
                 </p>
               </div>
-              <button id="upload-button" class="button primary">
-                <svg><use href="#i-plus" /></svg>Thêm tệp in
-              </button>
+              <div class="upload-destination">
+                <label
+                  >Upload vào thư mục<select id="upload-folder">
+                    <option value="">Thư viện gốc</option>
+                  </select></label
+                >
+                <button id="upload-button" class="button primary">
+                  <svg><use href="#i-plus" /></svg>Thêm tệp in
+                </button>
+              </div>
             </section>
             <section class="card queue-controls">
               <div>
-                <h2>In lần lượt tất cả tệp</h2>
+                <h2>In lần lượt toàn bộ thư viện</h2>
                 <p>
-                  Theo tên tệp 01 → 02 → 03…; in xong một plate mới chuyển plate tiếp theo. Máy có
-                  cơ chế tự dọn bàn.
+                  Gồm tệp ở tất cả thư mục, theo tên tệp 01 → 02 → 03…; in xong một plate mới chuyển
+                  plate tiếp theo. Máy có cơ chế tự dọn bàn.
                 </p>
                 <p>
                   Khay vật liệu lấy theo hậu tố AMS1, AMS2… trong tên tệp. Đóng trang vẫn tiếp tục
@@ -604,8 +616,19 @@
               <ol id="queue-items"></ol>
             </section>
             <div class="section-title">
-              <h2>Thư viện tệp</h2>
-              <span id="library-summary">0 tệp</span>
+              <h2>Thư mục</h2>
+              <button id="create-folder-button" type="button" class="button secondary">
+                <svg><use href="#i-plus" /></svg>Tạo thư mục
+              </button>
+            </div>
+            <p class="field-help library-help">
+              Bấm để mở thư mục. Kéo tệp từ thư viện để chuyển, hoặc kéo file từ máy tính vào thư
+              mục để upload.
+            </p>
+            <nav id="library-folders" class="library-folders" aria-label="Thư mục tệp in"></nav>
+            <div class="section-title library-heading">
+              <h2 id="library-title">Thư viện gốc</h2>
+              <span id="library-summary" role="status">0 tệp</span>
             </div>
             <div id="projects-list" class="projects-list"></div>
           </div>
@@ -644,6 +667,31 @@
       </div>
     </div>
 
+    <dialog id="folder-dialog">
+      <form id="folder-form">
+        <div class="dialog-heading">
+          <h2>Tạo thư mục</h2>
+          <button type="button" class="icon-button" data-close="folder-dialog" aria-label="Đóng">
+            <svg><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="dialog-description">Gom các tệp in cùng bộ vào một thư mục.</p>
+        <label
+          >Tên thư mục<input
+            id="folder-name"
+            name="name"
+            maxlength="80"
+            required
+            placeholder="Ví dụ: Batman"
+            autocomplete="off"
+        /></label>
+        <p id="folder-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" class="button secondary" data-close="folder-dialog">Hủy</button>
+          <button type="submit" class="button primary">Tạo thư mục</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="settings-dialog">
       <form id="settings-form">
         <div class="dialog-heading">

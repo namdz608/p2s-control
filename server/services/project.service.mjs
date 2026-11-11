@@ -2,6 +2,7 @@ import { PrintQueueService } from './print-queue.service.mjs';
 import { randomBytes } from 'node:crypto';
 import { AppError } from '../errors/app-error.mjs';
 import { ProjectModel } from '../models/project.model.mjs';
+import { ProjectFolderModel } from '../models/project-folder.model.mjs';
 import { inspectArchive, readPlatePreview } from './project-archive.service.mjs';
 import { buildPrintRequest } from './print-request.service.mjs';
 import { uploadPrinterFile } from './printer-file.service.mjs';
@@ -9,11 +10,13 @@ import { uploadPrinterFile } from './printer-file.service.mjs';
 export class ProjectService {
   static async open(directory, printer, config, upload = uploadPrinterFile) {
     const model = await ProjectModel.open(directory);
-    return new ProjectService(model, printer, config, upload);
+    const folders = await ProjectFolderModel.open(directory);
+    return new ProjectService(model, printer, config, upload, folders);
   }
 
-  constructor(model, printer, config, upload = uploadPrinterFile) {
+  constructor(model, printer, config, upload = uploadPrinterFile, folders) {
     this.model = model;
+    this.folders = folders;
     this.printer = printer;
     this.config = config;
     this.upload = upload;
@@ -24,6 +27,26 @@ export class ProjectService {
     return this.model.list();
   }
 
+  listFolders() {
+    return this.folders.list();
+  }
+
+  createFolder(input) {
+    const name = typeof input?.name === 'string' ? input.name.trim().normalize('NFC') : '';
+    if (
+      !name ||
+      name.length > 80 ||
+      /[\u0000-\u001f\u007f/\\]/.test(name) ||
+      ['.', '..'].includes(name)
+    )
+      throw new AppError(
+        'Tên thư mục phải có 1–80 ký tự, không chứa dấu /, \\ hoặc ký tự điều khiển.',
+      );
+    if (input.parentId !== undefined && input.parentId !== null)
+      throw new AppError('Chỉ hỗ trợ thư mục một cấp.');
+    return this.folders.add(name);
+  }
+
   async preview(id) {
     const project = await this.model.get(id);
     const image = await readPlatePreview(this.model.file(project.id, 'gcode.3mf'));
@@ -31,9 +54,22 @@ export class ProjectService {
     return image;
   }
 
-  async add(file) {
+  async validateFolder(folderId) {
+    if (folderId === null || folderId === undefined || folderId === '') return null;
+    await this.folders.get(folderId);
+    return folderId;
+  }
+
+  async move(id, input) {
+    if (!input || !Object.hasOwn(input, 'folderId')) throw new AppError('Chưa chọn thư mục đích.');
+    const folderId = await this.validateFolder(input.folderId);
+    return this.model.move(id, folderId);
+  }
+
+  async add(file, destination) {
+    const folderId = await this.validateFolder(destination);
     const details = await inspectArchive(file.path);
-    return this.model.add(file, details);
+    return this.model.add(file, { ...details, folderId });
   }
 
   async remove(id) {
