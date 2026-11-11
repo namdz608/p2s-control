@@ -120,6 +120,12 @@ Trong trang **Tệp in**, bấm **Tạo thư mục** để gom các tệp cùng 
 
 Kéo một hoặc nhiều file `.gcode.3mf` từ máy tính vào thẻ thư mục để upload trực tiếp. Khi bấm **Thêm tệp in**, chọn đích trong ô **Upload vào thư mục**; mặc định là thư mục đang mở. Thư mục và vị trí tệp được lưu trên server. **In tất cả** vẫn in toàn bộ thư viện, gồm mọi thư mục.
 
+## Tự động triển khai lên Kubernetes
+
+Push lên `main` sẽ chạy workflow **Publish Docker image**: build/push `brucewayne2610/p2s-control:<commit-sha>`, rồi cập nhật `p2s-control/values.yaml` trong repo `namdz608/helm-chart`. Argo CD Application `p2s-control` theo dõi nhánh `main` của repo Helm và tự đồng bộ image mới lên namespace `p2s-control`.
+
+Manifest Application nằm tại `applications/p2s-control.yaml` trong repo Helm; cấu hình riêng của cluster nằm trong `p2s-control/values.cluster.yaml`. File cấu hình cluster không đặt image/tag riêng để tránh ghi đè tag do CI cập nhật. App tiếp tục dùng Secret đăng nhập và PVC hiện có, cùng node có tuyến mạng tới máy in. Không cần build/import image hoặc chạy `helm upgrade` thủ công sau mỗi lần push. Xem hướng dẫn bootstrap và vận hành trong README của Helm chart.
+
 ## Phát triển và kiểm thử
 
 ```bash
