@@ -146,4 +146,18 @@ export class PrinterStorageService {
     this.printer.event?.(`Đã xóa tệp trên USB: ${name}`);
     return { ok: true, path: filePath };
   }
+
+  async removeOwnedCopy(projectId) {
+    if (!/^[a-f0-9]{32}$/.test(projectId)) return { removed: false, reason: 'absent' };
+    const config = this.config.get();
+    if (!config?.host || !config.accessCode) return { removed: false, reason: 'unconfigured' };
+    try {
+      await this.remove(`/${projectId}.gcode.3mf`, true);
+      return { removed: true, reason: 'removed' };
+    } catch (error) {
+      if (error instanceof AppError && error.status === 404)
+        return { removed: false, reason: 'absent' };
+      throw error;
+    }
+  }
 }

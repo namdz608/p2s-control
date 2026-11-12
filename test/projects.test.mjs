@@ -5,6 +5,7 @@ import { createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import yazl from 'yazl';
+import { AppError } from '../server/errors/app-error.mjs';
 import { inspectArchive, readPlatePreview } from '../server/services/project-archive.service.mjs';
 import { buildPrintRequest } from '../server/services/print-request.service.mjs';
 import { ProjectService } from '../server/services/project.service.mjs';
@@ -313,6 +314,51 @@ test('successful publish keeps a reservation while telemetry still reports IDLE'
       /đang|đợi/i,
     );
     assert.equal(publishes, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('deleting a library file removes its printer USB copy and keeps the library file if that delete fails', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'p2s-usb-delete-'));
+  const printer = { jobPending: false, event() {} };
+  const projects = await ProjectService.open(dir, printer, { get: () => ({}) });
+  try {
+    const file = path.join(dir, 'fixture.gcode.3mf');
+    await archive(file, metadata);
+    const saved = await projects.add({ path: file, originalname: 'sample.gcode.3mf', size: 500 });
+    const removed = [];
+    projects.storage = {
+      async removeOwnedCopy(id) {
+        removed.push(id);
+        return { removed: true, reason: 'removed' };
+      },
+    };
+    assert.deepEqual(await projects.remove(saved.id), { ok: true, usb: 'removed' });
+    assert.deepEqual(removed, [saved.id]);
+    assert.equal((await projects.list()).length, 0);
+
+    const againFile = path.join(dir, 'again.gcode.3mf');
+    await archive(againFile, metadata);
+    const again = await projects.add({
+      path: againFile,
+      originalname: 'again.gcode.3mf',
+      size: 500,
+    });
+    projects.storage = {
+      async removeOwnedCopy() {
+        throw new AppError(
+          'Không truy cập được USB máy in qua FTPS cổng 990. Kiểm tra Developer Mode, USB và kết nối.',
+          502,
+        );
+      },
+    };
+    await assert.rejects(projects.remove(again.id), /USB/);
+    assert.equal(
+      (await projects.list()).some((item) => item.id === again.id),
+      true,
+      'library file must stay when the USB copy cannot be deleted',
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

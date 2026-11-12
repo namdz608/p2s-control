@@ -40,8 +40,8 @@ export class ProjectController {
   };
 
   destroy = async (req, res) => {
-    await this.projects.remove(req.params.id);
-    res.json({ ok: true });
+    const result = await this.projects.remove(req.params.id);
+    res.json(result?.ok ? result : { ok: true });
   };
 
   queueStatus = (_req, res) => {

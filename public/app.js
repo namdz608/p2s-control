@@ -876,14 +876,22 @@ function renderLibrary() {
         if (
           await confirmAction(
             'Xóa tệp khỏi thư viện?',
-            `Tệp “${project.name}” sẽ bị xóa khỏi server.`,
+            `Tệp “${project.name}” sẽ bị xóa khỏi server. Nếu máy in đang giữ bản sao trên USB, bản đó cũng bị xóa.`,
             'Xóa tệp',
             true,
           )
         ) {
-          await api(`/projects/${project.id}`, { method: 'DELETE' });
+          const result = await api(`/projects/${project.id}`, { method: 'DELETE' });
           await loadProjects();
-          toast('Đã xóa tệp khỏi thư viện.');
+          if (UI.usb.loaded) {
+            UI.usb.loaded = false;
+            if (!UI.usbBusy) await loadUsb(UI.usb.path || '/');
+          }
+          toast(
+            result.usb === 'removed'
+              ? 'Đã xóa tệp khỏi thư viện và USB máy in.'
+              : 'Đã xóa tệp khỏi thư viện.',
+          );
         }
       }),
     ),

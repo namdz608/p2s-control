@@ -20,6 +20,7 @@ export class ProjectService {
     this.printer = printer;
     this.config = config;
     this.upload = upload;
+    this.storage = null;
     this.queue = new PrintQueueService(this);
   }
 
@@ -75,7 +76,14 @@ export class ProjectService {
   async remove(id) {
     if (this.queue.active) throw new AppError('Đợi hoặc hủy hàng đợi trước khi xóa tệp.', 409);
     if (this.printer.jobPending) throw new AppError('Đang gửi tệp in. Đợi tác vụ hoàn tất.', 409);
+    await this.model.get(id);
+    let usb = 'skipped';
+    if (this.storage) {
+      const copy = await this.storage.removeOwnedCopy(id);
+      usb = copy.reason;
+    }
     await this.model.remove(id);
+    return { ok: true, usb };
   }
 
   async start(id, input, queueToken) {

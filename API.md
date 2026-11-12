@@ -29,7 +29,7 @@ Base URL: `/api/v1`. Các phản hồi JSON giữ định dạng hiện có; cam
 | Thư mục | GET | `/api/v1/projects/folders` | `200`, mảng `{ id, name }` |
 | Thư mục | POST | `/api/v1/projects/folders` | `201`, thư mục mới `{ id, name }` |
 | Tệp in | PATCH | `/api/v1/projects/:id/folder` | `200`, metadata sau khi chuyển thư mục |
-| Tệp in | DELETE | `/api/v1/projects/:id` | `200 { "ok": true }`, xóa khỏi thư viện server |
+| Tệp in | DELETE | `/api/v1/projects/:id` | `200 { "ok": true, "usb": "removed" \| "absent" \| "unconfigured" \| "skipped" }`, xóa thư viện và gỡ `/{id}.gcode.3mf` trên USB nếu có |
 | Tệp in | POST | `/api/v1/projects/:id/start` | `202 { "ok": true, "message": "..." }` |
 | Hàng đợi | GET | `/api/v1/projects/queue` | `200`, trạng thái và danh sách lượt in |
 | Hàng đợi | POST | `/api/v1/projects/queue/start` | `202`, hàng đợi đã được kiểm tra và nhận |

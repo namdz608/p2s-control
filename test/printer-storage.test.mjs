@@ -163,6 +163,52 @@ test('delete removes one confirmed file and refuses directories, missing files, 
   assert.deepEqual(removed, ['keep.gcode.3mf', 'IndexerVolumeGuid']);
 });
 
+test('removing a library copy deletes that project file, ignores a missing one, and refuses an active print', async () => {
+  const id = 'a'.repeat(32);
+  const removed = [];
+  const ftp = async (_config, task) =>
+    task({
+      async list() {
+        return [{ name: `${id}.gcode.3mf`, type: FileType.File, size: 4 }];
+      },
+      async remove(file) {
+        removed.push(file);
+      },
+    });
+  assert.deepEqual(await service(ftp).service.removeOwnedCopy(id), {
+    removed: true,
+    reason: 'removed',
+  });
+  assert.deepEqual(removed, [`${id}.gcode.3mf`]);
+  const missing = service(async (_config, task) =>
+    task({
+      async list() {
+        return [];
+      },
+      async remove() {
+        throw new Error('should not remove');
+      },
+    }),
+  );
+  assert.deepEqual(await missing.service.removeOwnedCopy(id), {
+    removed: false,
+    reason: 'absent',
+  });
+  const unconfigured = new PrinterStorageService(
+    { get: () => ({}) },
+    { jobPending: false, snapshot: () => ({ status: 'IDLE' }), raw: { print: {} }, event() {} },
+  );
+  assert.deepEqual(await unconfigured.removeOwnedCopy(id), {
+    removed: false,
+    reason: 'unconfigured',
+  });
+  await assert.rejects(
+    service(ftp, { status: 'RUNNING', task: `${id}.gcode.3mf` }).service.removeOwnedCopy(id),
+    /bản in/i,
+  );
+  assert.deepEqual(removed, [`${id}.gcode.3mf`]);
+});
+
 test('printer storage routes require login and delete only through the storage service', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'p2s-usb-'));
   const config = await ConfigStore.open(directory);

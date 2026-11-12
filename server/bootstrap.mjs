@@ -1,6 +1,7 @@
 import { ConfigStore } from './models/printer-config.model.mjs';
 import { PrinterService } from './services/printer.service.mjs';
 import { ProjectService } from './services/project.service.mjs';
+import { PrinterStorageService } from './services/printer-storage.service.mjs';
 import { CameraService } from './services/camera.service.mjs';
 import { TimelapseService } from './services/timelapse.service.mjs';
 import { createApp } from './app.mjs';
@@ -10,6 +11,8 @@ export async function createRuntime(environment = process.env) {
   const config = await ConfigStore.open(directory);
   const printer = new PrinterService(config);
   const projects = await ProjectService.open(directory, printer, config);
+  const storage = new PrinterStorageService(config, printer, undefined, projects);
+  projects.storage = storage;
   const camera = new CameraService(
     config,
     environment.CAMERA_CONFIG_DIR || '/app/camera',
@@ -29,6 +32,7 @@ export async function createRuntime(environment = process.env) {
     printer,
     projects,
     camera,
+    storage,
     timelapse,
     password,
     secureCookies: environment.SECURE_COOKIES === 'true',
