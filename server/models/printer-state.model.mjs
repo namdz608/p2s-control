@@ -16,6 +16,13 @@ const number = (value) =>
     ? null
     : Number(value);
 const array = (value) => (Array.isArray(value) ? value : []);
+function usbSpaceFrom(source) {
+  if (!object(source)) return null;
+  const total = number(source.tl_external_total_kb);
+  const free = number(source.tl_external_free_kb);
+  if (total === null || free === null || total <= 0 || free < 0 || free > total) return null;
+  return { totalBytes: Math.round(total * 1024), freeBytes: Math.round(free * 1024) };
+}
 export function summarize(raw) {
   const p = raw.print ?? {};
   return {
@@ -33,6 +40,7 @@ export function summarize(raw) {
     wifi: typeof p.wifi_signal === 'string' ? p.wifi_signal : null,
     light: array(p.lights_report).find((item) => item.node === 'chamber_light')?.mode === 'on',
     sdcard: typeof p.sdcard === 'boolean' ? p.sdcard : null,
+    usbSpace: usbSpaceFrom(p.ipcam) ?? usbSpaceFrom(p.device?.cam),
     printError: number(p.print_error),
     hms: array(p.hms)
       .filter(object)

@@ -5,6 +5,23 @@ import { withPrinterFtp } from './printer-file.service.mjs';
 const busyStates = new Set(['RUNNING', 'PAUSE', 'PREPARE', 'SLICING']);
 const visibleLimit = 500;
 const readLimit = 5000;
+const deleteConcurrency = 4;
+
+async function runPool(items, limit, task) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Math.min(Math.max(limit, 1), items.length);
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await task(items[index]);
+      }
+    }),
+  );
+  return results;
+}
 
 export function resolveStoragePath(input = '/') {
   if (typeof input !== 'string') throw new AppError('Đường dẫn USB không hợp lệ.');
@@ -145,6 +162,102 @@ export class PrinterStorageService {
     await this.useFtp((client) => client.remove(ftpPath(filePath)));
     this.printer.event?.(`Đã xóa tệp trên USB: ${name}`);
     return { ok: true, path: filePath };
+  }
+
+  async removeMany(inputs, confirmed) {
+    if (confirmed !== true) throw new AppError('Cần xác nhận trước khi xóa tệp trên USB.');
+    if (!Array.isArray(inputs) || inputs.length === 0)
+      throw new AppError('Chọn ít nhất một tệp trước khi xóa.');
+    if (inputs.length > visibleLimit) throw new AppError('Chọn quá nhiều tệp để xóa một lần.', 409);
+    if (this.printer.jobPending)
+      throw new AppError('Đang gửi tệp in. Đợi xong rồi mới xóa tệp trên USB.', 409);
+    const state = this.printer.snapshot();
+    const projects = this.projects?.list ? await this.projects.list() : [];
+    const failed = [];
+    const unique = [];
+    const seen = new Set();
+    for (const input of inputs) {
+      let filePath;
+      try {
+        filePath = resolveStoragePath(input);
+      } catch (error) {
+        failed.push({ path: String(input ?? ''), error: error.message });
+        continue;
+      }
+      if (seen.has(filePath)) continue;
+      seen.add(filePath);
+      if (filePath === '/') {
+        failed.push({ path: filePath, error: 'Không xóa thư mục gốc của USB.' });
+        continue;
+      }
+      if (busyStates.has(state.status) && storageFileInUse(filePath, this.printer, projects)) {
+        failed.push({
+          path: filePath,
+          error: 'Tệp này đang được bản in dùng. Đợi máy in xong rồi mới xóa.',
+        });
+        continue;
+      }
+      unique.push(filePath);
+    }
+    const byParent = new Map();
+    for (const filePath of unique) {
+      const parent = filePath.slice(0, filePath.lastIndexOf('/')) || '/';
+      const name = filePath.slice(filePath.lastIndexOf('/') + 1);
+      const group = byParent.get(parent) || [];
+      group.push({ filePath, name });
+      byParent.set(parent, group);
+    }
+    const listed = await runPool(
+      [...byParent.entries()],
+      deleteConcurrency,
+      async ([parent, files]) => {
+        try {
+          const { entries } = await this.read(parent);
+          return { parent, files, entries };
+        } catch (error) {
+          return { parent, files, error };
+        }
+      },
+    );
+    const ready = [];
+    for (const group of listed) {
+      if (group.error) {
+        for (const file of group.files)
+          failed.push({ path: file.filePath, error: group.error.message });
+        continue;
+      }
+      const known = new Map(group.entries.map((entry) => [entry.name, entry]));
+      for (const file of group.files) {
+        const entry = known.get(file.name);
+        if (!entry) {
+          failed.push({ path: file.filePath, error: 'Không thấy tệp này trên USB.' });
+          continue;
+        }
+        if (entry.type !== 'file') {
+          failed.push({
+            path: file.filePath,
+            error: 'Chỉ xóa được từng tệp. Thư mục trên USB được giữ nguyên.',
+          });
+          continue;
+        }
+        ready.push(file);
+      }
+    }
+    const outcomes = await runPool(ready, deleteConcurrency, async (file) => {
+      try {
+        await this.useFtp((client) => client.remove(ftpPath(file.filePath)));
+        this.printer.event?.(`Đã xóa tệp trên USB: ${file.name}`);
+        return { ok: true, path: file.filePath };
+      } catch (error) {
+        return { ok: false, path: file.filePath, error: error.message };
+      }
+    });
+    const removed = [];
+    for (const outcome of outcomes) {
+      if (outcome.ok) removed.push(outcome.path);
+      else failed.push({ path: outcome.path, error: outcome.error });
+    }
+    return { ok: failed.length === 0, removed, failed };
   }
 
   async removeOwnedCopy(projectId) {

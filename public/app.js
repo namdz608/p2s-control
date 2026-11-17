@@ -582,8 +582,18 @@ function toggleUsbSelectAll(selected) {
   UI.usbSelected = selected ? UI.usb.entries.filter(usbSelectable).map((entry) => entry.path) : [];
   renderUsb();
 }
+function renderUsbCapacity() {
+  const space = UI.printer.usbSpace;
+  if (!space || !Number.isFinite(space.freeBytes) || !Number.isFinite(space.totalBytes)) {
+    $('#usb-capacity').textContent = 'Chưa đọc được dung lượng còn lại của USB.';
+    return;
+  }
+  $('#usb-capacity').textContent =
+    `Còn ${usbBytes(space.freeBytes)} / ${usbBytes(space.totalBytes)}.`;
+}
 function renderUsb() {
   const data = UI.usb;
+  renderUsbCapacity();
   $('#usb-path').hidden = !data.loaded;
   $('#usb-refresh').disabled = UI.usbBusy;
   if (!data.loaded) {
@@ -758,32 +768,30 @@ async function deleteUsbSelected() {
   UI.usbBusy = true;
   $('#usb-error').textContent = '';
   renderUsb();
-  const failed = [];
+  $('#usb-status').textContent = `Đang xóa ${entries.length} tệp trên USB…`;
   try {
-    for (const entry of entries) {
-      try {
-        await api('/printer/storage', {
-          method: 'DELETE',
-          timeout: 60000,
-          body: { path: entry.path, confirmed: true },
-        });
-        UI.usbSelected = UI.usbSelected.filter((item) => item !== entry.path);
-      } catch (error) {
-        failed.push(`${entry.label || entry.name}: ${error.message}`);
-      }
-    }
+    const result = await api('/printer/storage', {
+      method: 'DELETE',
+      timeout: 300000,
+      body: { paths: entries.map((entry) => entry.path), confirmed: true },
+    });
+    const removed = new Set(Array.isArray(result.removed) ? result.removed : []);
+    const failed = Array.isArray(result.failed) ? result.failed : [];
+    const labels = new Map(entries.map((entry) => [entry.path, entry.label || entry.name]));
+    UI.usbSelected = UI.usbSelected.filter((item) => !removed.has(item));
     const listing = await api(`/printer/storage?path=${encodeURIComponent(UI.usb.path || '/')}`, {
       timeout: 60000,
     });
     UI.usb = { ...listing, loaded: true };
-    const removed = entries.length - failed.length;
     if (failed.length) {
-      $('#usb-error').textContent = failed.join(' ');
-      $('#usb-status').textContent = `Đã xóa ${removed} tệp. ${failed.length} tệp chưa xóa.`;
+      $('#usb-error').textContent = failed
+        .map((item) => `${labels.get(item.path) || item.path}: ${item.error}`)
+        .join(' ');
+      $('#usb-status').textContent = `Đã xóa ${removed.size} tệp. ${failed.length} tệp chưa xóa.`;
     } else {
-      toast(`Đã xóa ${removed} tệp trên USB.`);
+      toast(`Đã xóa ${removed.size} tệp trên USB.`);
       $('#usb-status').textContent =
-        `Đã xóa ${removed} tệp. Đang xem ${UI.usb.path}. ${UI.usb.entries.length} mục.`;
+        `Đã xóa ${removed.size} tệp. Đang xem ${UI.usb.path}. ${UI.usb.entries.length} mục.`;
     }
   } catch (error) {
     $('#usb-error').textContent = error.message;

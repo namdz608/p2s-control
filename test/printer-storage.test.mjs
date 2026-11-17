@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import { FileType } from 'basic-ftp';
 import { ConfigStore } from '../server/models/printer-config.model.mjs';
 import { createApp } from '../server/app.mjs';
+import { AppError } from '../server/errors/app-error.mjs';
 import {
   attachStorageLabels,
   describeStorageEntry,
@@ -164,6 +165,64 @@ test('delete removes one confirmed file and refuses directories, missing files, 
   assert.deepEqual(removed, ['keep.gcode.3mf', 'IndexerVolumeGuid']);
 });
 
+test('removeMany lists each folder once and deletes the chosen files in parallel', async () => {
+  let active = 0;
+  let peak = 0;
+  const lists = [];
+  const removed = [];
+  const ftp = async (_config, task) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    try {
+      return await task({
+        async list(directory) {
+          lists.push(directory);
+          return [
+            { name: 'a.gcode.3mf', type: FileType.File, size: 1 },
+            { name: 'bad.gcode.3mf', type: FileType.File, size: 1 },
+            { name: 'keep.gcode.3mf', type: FileType.File, size: 1 },
+            { name: 'cache', type: FileType.Directory, size: 0 },
+          ];
+        },
+        async remove(file) {
+          removed.push(file);
+          if (file === 'bad.gcode.3mf') throw new AppError('USB từ chối tệp này.');
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        },
+      });
+    } finally {
+      active -= 1;
+    }
+  };
+  const { service: files, events } = service(ftp);
+  await assert.rejects(files.removeMany(['/a.gcode.3mf'], false), /xác nhận/i);
+  const result = await files.removeMany(
+    ['/a.gcode.3mf', '/bad.gcode.3mf', '/cache', '/missing.gcode.3mf', '/a.gcode.3mf'],
+    true,
+  );
+  assert.deepEqual(lists, ['']);
+  assert.deepEqual(result.removed, ['/a.gcode.3mf']);
+  assert.deepEqual(
+    result.failed.map((item) => item.path),
+    ['/cache', '/missing.gcode.3mf', '/bad.gcode.3mf'],
+  );
+  assert.match(result.failed.find((item) => item.path === '/bad.gcode.3mf').error, /từ chối/i);
+  assert.equal(peak > 1, true);
+  assert.deepEqual(removed, ['a.gcode.3mf', 'bad.gcode.3mf']);
+  assert.deepEqual(events, ['Đã xóa tệp trên USB: a.gcode.3mf']);
+  await assert.rejects(files.removeMany([], true), /ít nhất một tệp/i);
+  await assert.rejects(
+    service(ftp, { jobPending: true }).service.removeMany(['/a.gcode.3mf'], true),
+    /đang gửi/i,
+  );
+  const busy = await service(ftp, { status: 'RUNNING', task: 'keep.gcode.3mf' }).service.removeMany(
+    ['/keep.gcode.3mf', '/a.gcode.3mf'],
+    true,
+  );
+  assert.deepEqual(busy.removed, ['/a.gcode.3mf']);
+  assert.match(busy.failed[0].error, /bản in/i);
+});
+
 test('removing a library copy deletes that project file, ignores a missing one, and refuses an active print', async () => {
   const id = 'a'.repeat(32);
   const removed = [];
@@ -223,6 +282,10 @@ test('printer storage routes require login and delete only through the storage s
       seen.push(['remove', filePath, confirmed]);
       return { ok: true, path: filePath };
     },
+    removeMany: async (paths, confirmed) => {
+      seen.push(['removeMany', paths, confirmed]);
+      return { ok: true, removed: paths, failed: [] };
+    },
   };
   const server = createApp({
     config,
@@ -258,9 +321,16 @@ test('printer storage routes require login and delete only through the storage s
       body: JSON.stringify({ path: '/cache/old.gcode.3mf', confirmed: true }),
     });
     assert.equal(removed.status, 200);
+    const many = await fetch(`${origin}/api/v1/printer/storage`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ paths: ['/a.gcode.3mf', '/b.gcode.3mf'], confirmed: true }),
+    });
+    assert.equal(many.status, 200);
     assert.deepEqual(seen, [
       ['list', '/cache'],
       ['remove', '/cache/old.gcode.3mf', true],
+      ['removeMany', ['/a.gcode.3mf', '/b.gcode.3mf'], true],
     ]);
     const page = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
     const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
@@ -269,6 +339,7 @@ test('printer storage routes require login and delete only through the storage s
     assert.match(page, /id="usb-refresh"/);
     assert.match(page, /id="usb-select-all"/);
     assert.match(page, /id="usb-delete-selected"/);
+    assert.match(page, /id="usb-capacity"/);
     assert.equal(
       page.includes('id="page-files"') && page.split('id="page-usb"')[0].includes('id="usb-list"'),
       false,
@@ -333,7 +404,16 @@ test('usb select boxes delete only the chosen files and skip a file the printer 
         ],
         truncated: false,
       };
-    if (options?.body?.path === '/bad.gcode.3mf') throw new Error('USB từ chối tệp này.');
+    if (options?.method === 'DELETE') {
+      const paths = options.body?.paths || [];
+      return {
+        ok: !paths.includes('/bad.gcode.3mf'),
+        removed: paths.filter((item) => item !== '/bad.gcode.3mf'),
+        failed: paths.includes('/bad.gcode.3mf')
+          ? [{ path: '/bad.gcode.3mf', error: 'USB từ chối tệp này.' }]
+          : [],
+      };
+    }
     return { ok: true };
   };
   vm.runInContext('confirmAction = async () => false;', context);
@@ -350,6 +430,12 @@ test('usb select boxes delete only the chosen files and skip a file the printer 
     context,
   );
   const list = node('#usb-list').innerHTML;
+  assert.match(node('#usb-capacity').textContent, /Chưa đọc được dung lượng/);
+  vm.runInContext(
+    'UI.printer.usbSpace = { totalBytes: 1024 ** 3, freeBytes: 512 * 1024 * 1024 }; renderUsb();',
+    context,
+  );
+  assert.equal(node('#usb-capacity').textContent, 'Còn 512.0 MB / 1.00 GB.');
   assert.match(list, /data-usb-open="%2Fipcam"/);
   assert.doesNotMatch(list, /data-usb-select="%2Fipcam"/);
   assert.match(list, /data-usb-select="%2Fa\.gcode\.3mf"/);
@@ -365,12 +451,13 @@ test('usb select boxes delete only the chosen files and skip a file the printer 
   assert.equal(context.calls.length, 0);
   vm.runInContext('confirmAction = async () => true;', context);
   await vm.runInContext('deleteUsbSelected()', context);
-  assert.deepEqual(
-    context.calls
-      .filter((call) => call.options?.method === 'DELETE')
-      .map((call) => call.options.body.path),
-    ['/a.gcode.3mf', '/bad.gcode.3mf'],
-  );
+  const deleted = context.calls.filter((call) => call.options?.method === 'DELETE');
+  assert.equal(deleted.length, 1);
+  assert.equal(deleted[0].options.body.confirmed, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(deleted[0].options.body.paths)), [
+    '/a.gcode.3mf',
+    '/bad.gcode.3mf',
+  ]);
   assert.match(node('#usb-error').textContent, /USB từ chối tệp này/);
   assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(UI.usbSelected)', context)), [
     '/bad.gcode.3mf',

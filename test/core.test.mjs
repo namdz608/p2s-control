@@ -57,6 +57,27 @@ test('P2S chamber uses ctc, packed temperatures are not mistaken for degrees, hu
   assert.equal(state.ams[0].trays[0].remaining, null);
   assert.equal(state.ams[0].trays[0].color, '#FA6644');
   assert.equal(summarize({}).progress, null);
+  assert.equal(summarize({}).usbSpace, null);
+});
+
+test('USB free space comes from the printer external storage counters', () => {
+  const state = summarize({
+    print: {
+      ipcam: { tl_external_total_kb: '1048576', tl_external_free_kb: 524288 },
+      device: { cam: { tl_external_total_kb: 1, tl_external_free_kb: 1 } },
+    },
+  });
+  assert.deepEqual(state.usbSpace, { totalBytes: 1048576 * 1024, freeBytes: 524288 * 1024 });
+  assert.equal(
+    summarize({
+      print: { device: { cam: { tl_external_total_kb: 2048, tl_external_free_kb: 1024 } } },
+    }).usbSpace.freeBytes,
+    1024 * 1024,
+  );
+  assert.equal(
+    summarize({ print: { ipcam: { tl_external_total_kb: 10, tl_external_free_kb: 11 } } }).usbSpace,
+    null,
+  );
 });
 
 test('commands validate temperatures, speed, state and refuse raw G-code', () => {

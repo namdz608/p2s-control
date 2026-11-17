@@ -54,7 +54,12 @@ export class PrinterController {
   };
 
   deleteStorage = async (req, res) => {
-    res.json(await this.storage.remove(req.body?.path, req.body?.confirmed === true));
+    const confirmed = req.body?.confirmed === true;
+    if (Array.isArray(req.body?.paths)) {
+      res.json(await this.storage.removeMany(req.body.paths, confirmed));
+      return;
+    }
+    res.json(await this.storage.remove(req.body?.path, confirmed));
   };
 
   command = async (req, res) => {
