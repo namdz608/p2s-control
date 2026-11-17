@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import vm from 'node:vm';
 import { FileType } from 'basic-ftp';
 import { ConfigStore } from '../server/models/printer-config.model.mjs';
 import { createApp } from '../server/app.mjs';
@@ -266,15 +267,112 @@ test('printer storage routes require login and delete only through the storage s
     assert.match(page, /data-page="usb"/);
     assert.match(page, /id="page-usb"/);
     assert.match(page, /id="usb-refresh"/);
+    assert.match(page, /id="usb-select-all"/);
+    assert.match(page, /id="usb-delete-selected"/);
     assert.equal(
       page.includes('id="page-files"') && page.split('id="page-usb"')[0].includes('id="usb-list"'),
       false,
     );
     assert.match(app, /usb: \['USB'/);
+    assert.match(app, /data-usb-select/);
     assert.match(app, /\/printer\/storage/);
     assert.match(app, /confirmed: true/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('usb select boxes delete only the chosen files and skip a file the printer is using', async () => {
+  const nodes = new Map();
+  const node = (selector) => {
+    if (!nodes.has(selector))
+      nodes.set(selector, {
+        textContent: '',
+        innerHTML: '',
+        hidden: false,
+        disabled: false,
+        checked: false,
+        indeterminate: false,
+        classList: { toggle() {} },
+        addEventListener() {},
+        setAttribute() {},
+        className: '',
+      });
+    return nodes.get(selector);
+  };
+  const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const context = vm.createContext({
+    document: { querySelector: node, querySelectorAll: () => [] },
+    setTimeout,
+    clearTimeout,
+    calls: [],
+  });
+  vm.runInContext(source.slice(0, source.indexOf("$('#today')")), context);
+  context.api = async (url, options) => {
+    context.calls.push({ url, options });
+    if (String(url).startsWith('/printer/storage?'))
+      return {
+        path: '/',
+        parent: null,
+        entries: [
+          {
+            type: 'file',
+            name: 'keep.gcode.3mf',
+            path: '/keep.gcode.3mf',
+            label: 'Giữ lại',
+            size: 4,
+          },
+          {
+            type: 'file',
+            name: 'bad.gcode.3mf',
+            path: '/bad.gcode.3mf',
+            label: 'Tệp lỗi',
+            size: 12,
+          },
+        ],
+        truncated: false,
+      };
+    if (options?.body?.path === '/bad.gcode.3mf') throw new Error('USB từ chối tệp này.');
+    return { ok: true };
+  };
+  vm.runInContext('confirmAction = async () => false;', context);
+  vm.runInContext(
+    `UI.printer = { status: 'RUNNING', jobPending: false, task: 'Đang in', activeFile: 'busy.gcode.3mf', sdcard: true };
+     UI.usb = { path: '/', parent: null, entries: [
+       { type: 'directory', name: 'ipcam', path: '/ipcam' },
+       { type: 'file', name: 'busy.gcode.3mf', path: '/busy.gcode.3mf', label: 'Đang in', size: 8 },
+       { type: 'file', name: 'a.gcode.3mf', path: '/a.gcode.3mf', label: 'Tệp A', size: 10 },
+       { type: 'file', name: 'bad.gcode.3mf', path: '/bad.gcode.3mf', label: 'Tệp lỗi', size: 12 },
+     ], truncated: false, loaded: true };
+     UI.usbSelected = [];
+     renderUsb();`,
+    context,
+  );
+  const list = node('#usb-list').innerHTML;
+  assert.match(list, /data-usb-open="%2Fipcam"/);
+  assert.doesNotMatch(list, /data-usb-select="%2Fipcam"/);
+  assert.match(list, /data-usb-select="%2Fa\.gcode\.3mf"/);
+  assert.match(list, /data-usb-select="%2Fbusy\.gcode\.3mf"[^>]*disabled/);
+  vm.runInContext('toggleUsbSelectAll(true);', context);
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(UI.usbSelected)', context)), [
+    '/a.gcode.3mf',
+    '/bad.gcode.3mf',
+  ]);
+  assert.equal(node('#usb-delete-selected').disabled, false);
+  assert.match(node('#usb-delete-selected').textContent, /2/);
+  await vm.runInContext('deleteUsbSelected()', context);
+  assert.equal(context.calls.length, 0);
+  vm.runInContext('confirmAction = async () => true;', context);
+  await vm.runInContext('deleteUsbSelected()', context);
+  assert.deepEqual(
+    context.calls
+      .filter((call) => call.options?.method === 'DELETE')
+      .map((call) => call.options.body.path),
+    ['/a.gcode.3mf', '/bad.gcode.3mf'],
+  );
+  assert.match(node('#usb-error').textContent, /USB từ chối tệp này/);
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(UI.usbSelected)', context)), [
+    '/bad.gcode.3mf',
+  ]);
 });

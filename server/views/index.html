@@ -637,8 +637,8 @@
               <div>
                 <h2>Tệp trên USB máy in</h2>
                 <p>
-                  Danh sách đọc trực tiếp từ USB của P2S. Xóa từng tệp sau khi xác nhận. App không
-                  xóa thư mục, và không xóa tệp đang được bản in dùng.
+                  Danh sách đọc trực tiếp từ USB của P2S. Chọn các tệp rồi xóa một lần, hoặc xóa
+                  từng tệp. App không xóa thư mục, và không xóa tệp đang được bản in dùng.
                 </p>
                 <p id="usb-status" class="field-help" role="status">Đang chờ đọc USB.</p>
                 <p id="usb-error" class="form-error" role="alert"></p>
@@ -646,6 +646,14 @@
               <button id="usb-refresh" class="button secondary" type="button">Kiểm tra lại</button>
             </section>
             <div id="usb-path" class="usb-crumbs" hidden></div>
+            <div id="usb-actions" class="usb-actions" hidden>
+              <label class="checkbox-label">
+                <input id="usb-select-all" type="checkbox" />Chọn tất cả tệp trong thư mục này
+              </label>
+              <button id="usb-delete-selected" class="button danger compact" type="button" disabled>
+                Xóa đã chọn
+              </button>
+            </div>
             <div id="usb-list" class="usb-list"></div>
           </div>
           <div id="page-materials" class="page-content" hidden>

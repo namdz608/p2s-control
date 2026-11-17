@@ -48,6 +48,7 @@ const UI = {
   folderId: '',
   uploadBusy: false,
   usb: { path: '/', parent: null, entries: [], truncated: false, loaded: false },
+  usbSelected: [],
   usbBusy: false,
   queue: { active: false, status: 'idle', items: [] },
   queueSubmitting: false,
@@ -130,6 +131,7 @@ function showLogin() {
   UI.folders = [];
   UI.folderId = '';
   UI.usb = { path: '/', parent: null, entries: [], truncated: false, loaded: false };
+  UI.usbSelected = [];
   UI.usbBusy = false;
   UI.queue = { active: false, status: 'idle', items: [] };
   UI.queueSubmitting = false;
@@ -564,6 +566,22 @@ function usbFileInUse(entry) {
     .filter((value) => typeof value === 'string' && value.length > 0)
     .some((value) => haystack.includes(value.toLowerCase()));
 }
+function usbSelectable(entry) {
+  return entry?.type === 'file' && !UI.printer.jobPending && !usbFileInUse(entry);
+}
+function toggleUsbSelection(filePath, selected) {
+  const entry = UI.usb.entries.find((item) => item.path === filePath);
+  if (!usbSelectable(entry)) return;
+  const next = new Set(UI.usbSelected);
+  if (selected) next.add(filePath);
+  else next.delete(filePath);
+  UI.usbSelected = [...next];
+  renderUsb();
+}
+function toggleUsbSelectAll(selected) {
+  UI.usbSelected = selected ? UI.usb.entries.filter(usbSelectable).map((entry) => entry.path) : [];
+  renderUsb();
+}
 function renderUsb() {
   const data = UI.usb;
   $('#usb-path').hidden = !data.loaded;
@@ -571,8 +589,22 @@ function renderUsb() {
   if (!data.loaded) {
     $('#usb-path').innerHTML = '';
     $('#usb-list').innerHTML = '';
+    $('#usb-actions').hidden = true;
     return;
   }
+  const selectable = data.entries.filter(usbSelectable);
+  const allowed = new Set(selectable.map((entry) => entry.path));
+  UI.usbSelected = UI.usbSelected.filter((item) => allowed.has(item));
+  const chosen = new Set(UI.usbSelected);
+  $('#usb-actions').hidden = selectable.length === 0;
+  $('#usb-select-all').checked =
+    selectable.length > 0 && selectable.every((entry) => chosen.has(entry.path));
+  $('#usb-select-all').indeterminate = chosen.size > 0 && chosen.size < selectable.length;
+  $('#usb-select-all').disabled = UI.usbBusy || selectable.length === 0;
+  $('#usb-delete-selected').disabled = UI.usbBusy || chosen.size === 0;
+  $('#usb-delete-selected').textContent = chosen.size
+    ? `Xóa đã chọn (${chosen.size})`
+    : 'Xóa đã chọn';
   const parts = String(data.path || '/')
     .split('/')
     .filter(Boolean);
@@ -605,12 +637,19 @@ function renderUsb() {
             entry.type === 'file'
               ? `${named}${usbBytes(entry.size)}${when}`
               : 'Không xóa được mục này';
-          const locked = entry.type === 'file' && (UI.printer.jobPending || usbFileInUse(entry));
+          const selectableEntry = usbSelectable(entry);
+          const locked = entry.type === 'file' && !selectableEntry;
+          const checked = selectableEntry && chosen.has(entry.path);
           const remove =
             entry.type === 'file'
               ? `<button type="button" class="text-button" data-usb-delete="${encoded}" ${locked || UI.usbBusy ? 'disabled' : ''}>Xóa</button>`
               : '';
-          return `<article class="card usb-row"><div><h3>${escape(entry.label || entry.name)}</h3><p class="field-help">${note}</p></div>${remove}</article>`;
+          const title = `<h3>${escape(entry.label || entry.name)}</h3><p class="field-help">${note}</p>`;
+          const body =
+            entry.type === 'file'
+              ? `<label class="checkbox-label usb-select"><input type="checkbox" data-usb-select="${encoded}" aria-label="Chọn ${escape(entry.label || entry.name)}" ${checked ? 'checked' : ''} ${selectableEntry && !UI.usbBusy ? '' : 'disabled'} /><span class="usb-select-copy">${title}</span></label>`
+              : `<div>${title}</div>`;
+          return `<article class="card usb-row">${body}${remove}</article>`;
         })
         .join('')
     : '<section class="card usb-empty">Thư mục này không có tệp.</section>';
@@ -629,6 +668,7 @@ function renderUsb() {
 }
 async function loadUsb(path = UI.usb.path || '/') {
   if (UI.usbBusy) return;
+  if ((path || '/') !== (UI.usb.path || '/')) UI.usbSelected = [];
   UI.usbBusy = true;
   $('#usb-error').textContent = '';
   $('#usb-status').textContent = 'Đang đọc USB máy in…';
@@ -683,11 +723,68 @@ async function deleteUsb(filePath) {
       body: { path: filePath, confirmed: true },
     });
     toast('Đã xóa tệp trên USB.');
+    UI.usbSelected = UI.usbSelected.filter((item) => item !== filePath);
     const listing = await api(`/printer/storage?path=${encodeURIComponent(UI.usb.path || '/')}`, {
       timeout: 60000,
     });
     UI.usb = { ...listing, loaded: true };
     $('#usb-status').textContent = `Đã xóa. Đang xem ${UI.usb.path}. ${UI.usb.entries.length} mục.`;
+  } catch (error) {
+    $('#usb-error').textContent = error.message;
+  } finally {
+    UI.usbBusy = false;
+    renderUsb();
+  }
+}
+async function deleteUsbSelected() {
+  if (UI.usbBusy) return;
+  const entries = UI.usb.entries.filter(
+    (entry) => UI.usbSelected.includes(entry.path) && usbSelectable(entry),
+  );
+  if (!entries.length) {
+    $('#usb-error').textContent = 'Chọn ít nhất một tệp trước khi xóa.';
+    return;
+  }
+  const names = entries.map((entry) => `“${entry.label || entry.name}”`).join(', ');
+  if (
+    !(await confirmAction(
+      'Xóa các tệp đã chọn trên USB?',
+      `${entries.length} tệp sẽ bị xóa khỏi USB máy in: ${names}. Không khôi phục được từ app.`,
+      'Xóa trên USB',
+      true,
+    ))
+  )
+    return;
+  UI.usbBusy = true;
+  $('#usb-error').textContent = '';
+  renderUsb();
+  const failed = [];
+  try {
+    for (const entry of entries) {
+      try {
+        await api('/printer/storage', {
+          method: 'DELETE',
+          timeout: 60000,
+          body: { path: entry.path, confirmed: true },
+        });
+        UI.usbSelected = UI.usbSelected.filter((item) => item !== entry.path);
+      } catch (error) {
+        failed.push(`${entry.label || entry.name}: ${error.message}`);
+      }
+    }
+    const listing = await api(`/printer/storage?path=${encodeURIComponent(UI.usb.path || '/')}`, {
+      timeout: 60000,
+    });
+    UI.usb = { ...listing, loaded: true };
+    const removed = entries.length - failed.length;
+    if (failed.length) {
+      $('#usb-error').textContent = failed.join(' ');
+      $('#usb-status').textContent = `Đã xóa ${removed} tệp. ${failed.length} tệp chưa xóa.`;
+    } else {
+      toast(`Đã xóa ${removed} tệp trên USB.`);
+      $('#usb-status').textContent =
+        `Đã xóa ${removed} tệp. Đang xem ${UI.usb.path}. ${UI.usb.entries.length} mục.`;
+    }
   } catch (error) {
     $('#usb-error').textContent = error.message;
   } finally {
@@ -1448,6 +1545,13 @@ $('#usb-path').addEventListener(
     await loadUsb(decodeURIComponent(button.dataset.usbOpen));
   }),
 );
+$('#usb-select-all').addEventListener(
+  'change',
+  action((event) => {
+    toggleUsbSelectAll(event.target.checked);
+  }),
+);
+$('#usb-delete-selected').addEventListener('click', action(deleteUsbSelected));
 $('#usb-list').addEventListener(
   'click',
   action(async (event) => {
@@ -1459,6 +1563,14 @@ $('#usb-list').addEventListener(
     const button = event.target.closest('[data-usb-delete]');
     if (!button || button.disabled) return;
     await deleteUsb(decodeURIComponent(button.dataset.usbDelete));
+  }),
+);
+$('#usb-list').addEventListener(
+  'change',
+  action((event) => {
+    const box = event.target.closest('[data-usb-select]');
+    if (!box || box.disabled) return;
+    toggleUsbSelection(decodeURIComponent(box.dataset.usbSelect), box.checked);
   }),
 );
 $('#print-all-button').addEventListener('click', action(startPrintQueue));
