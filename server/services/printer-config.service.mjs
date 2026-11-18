@@ -14,6 +14,8 @@ export class PrinterConfigService {
   }
 
   async update(input) {
+    if (this.printer.filamentChange?.active)
+      throw new AppError('Đợi đổi filament kết thúc trước khi thay cấu hình máy in.', 409);
     if (this.timelapse?.busy)
       throw new AppError('Dừng ghi và đợi ghép timelapse xong trước khi đổi máy in.', 409);
     if (this.printer.maintenance?.active)
@@ -34,6 +36,11 @@ export class PrinterConfigService {
   }
 
   async reconnect() {
+    if (
+      this.printer.filamentChange?.active &&
+      this.printer.filamentChange.snapshot().status !== 'uncertain'
+    )
+      throw new AppError('Máy đang đổi filament. Đợi máy kết thúc trước khi kết nối lại.', 409);
     if (this.printer.maintenance?.snapshot().status === 'running')
       throw new AppError('Máy đang hiệu chuẩn. Đợi máy kết thúc trước khi kết nối lại.', 409);
     if (this.printer.jobPending || this.printer.configPending || this.printer.queueActive)

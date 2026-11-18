@@ -5,6 +5,7 @@ import { mergeReport, summarize } from '../models/printer-state.model.mjs';
 import { makeCommand } from './printer-command.service.mjs';
 import { AppError } from '../errors/app-error.mjs';
 import { PrinterMaintenanceService } from './printer-maintenance.service.mjs';
+import { PrinterFilamentService } from './printer-filament.service.mjs';
 import { blockingMaintenanceFaults, printerFaults } from '../models/printer-health.model.mjs';
 
 function certificateAt(host, port) {
@@ -25,7 +26,16 @@ function certificateAt(host, port) {
 }
 
 const healthFields = ['gcode_state', 'print_error', 'hms'];
-const trackedFields = [...healthFields, 'sdcard', 'nozzle_temper', 'bed_temper'];
+const trackedFields = [
+  ...healthFields,
+  'sdcard',
+  'nozzle_temper',
+  'nozzle_target_temper',
+  'bed_temper',
+  'ams_status',
+  'extruder_state',
+  'extruder_info',
+];
 const uint32 = (value) =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
 function validField(field, value) {
@@ -36,6 +46,13 @@ function validField(field, value) {
       Array.isArray(value) && value.every((item) => item && uint32(item.attr) && uint32(item.code))
     );
   if (field === 'sdcard') return typeof value === 'boolean';
+  if (field === 'ams_status') return uint32(value) && value <= 0xffff;
+  if (field === 'extruder_state') return uint32(value) && (value & 15) === 1;
+  if (field === 'extruder_info')
+    return (
+      Array.isArray(value) &&
+      value.some((entry) => entry?.id === 0 && uint32(entry.info) && uint32(entry.snow))
+    );
   return typeof value === 'number' && Number.isFinite(value);
 }
 
@@ -54,6 +71,7 @@ export class PrinterService {
     this.jobPending = false;
     this.configPending = false;
     this.maintenance = new PrinterMaintenanceService(this);
+    this.filamentChange = new PrinterFilamentService(this);
     this.reportWaiters = new Set();
     this.fieldReports = new Map();
     this.reportVersion = 0;
@@ -88,6 +106,7 @@ export class PrinterService {
       jobPending: this.jobPending,
       configPending: this.configPending,
       maintenance: this.maintenance.snapshot(),
+      filamentChange: this.filamentChange.snapshot(),
       fieldFresh,
       healthFresh: healthFields.every((field) => fieldFresh[field]),
     };
@@ -98,6 +117,26 @@ export class PrinterService {
         'Chưa có kết nối và dữ liệu mới từ máy in. Kiểm tra IP, LAN Only và Developer Mode.',
         409,
       );
+  }
+  recordTelemetry(delta) {
+    this.lastReport = Date.now();
+    this.message = 'Đang nhận dữ liệu từ máy in.';
+    const version = ++this.reportVersion;
+    const fields = { ...delta };
+    const extruder = delta.device?.extruder;
+    if (extruder && Object.hasOwn(extruder, 'state')) fields.extruder_state = extruder.state;
+    if (extruder && Object.hasOwn(extruder, 'info')) fields.extruder_info = extruder.info;
+    for (const field of trackedFields) {
+      if (!Object.hasOwn(fields, field)) continue;
+      if (validField(field, fields[field]))
+        this.fieldReports.set(field, { at: this.lastReport, version });
+      else this.fieldReports.delete(field);
+    }
+    for (const waiter of this.reportWaiters)
+      if (
+        waiter.fields.every((field) => (this.fieldReports.get(field)?.version || 0) > waiter.since)
+      )
+        waiter.finish();
   }
   async start() {
     const generation = this.generation + 1;
@@ -176,34 +215,20 @@ export class PrinterService {
               'gcode_state',
               'mc_percent',
               'nozzle_temper',
+              'nozzle_target_temper',
               'bed_temper',
               'device',
               'ams',
+              'ams_status',
               'wifi_signal',
               'gcode_file',
               'hms',
               'print_error',
               'sdcard',
             ].some((key) => key in report.print);
-          if (telemetry) {
-            this.lastReport = Date.now();
-            this.message = 'Đang nhận dữ liệu từ máy in.';
-            const version = ++this.reportVersion;
-            for (const field of trackedFields) {
-              if (!Object.hasOwn(report.print, field)) continue;
-              if (validField(field, report.print[field]))
-                this.fieldReports.set(field, { at: this.lastReport, version });
-              else this.fieldReports.delete(field);
-            }
-            for (const waiter of this.reportWaiters)
-              if (
-                healthFields.every(
-                  (field) => (this.fieldReports.get(field)?.version || 0) > waiter.since,
-                )
-              )
-                waiter.finish();
-          }
+          if (telemetry) this.recordTelemetry(report.print);
           this.maintenance.observe(report);
+          void this.filamentChange.observe(report).catch(() => this.filamentChange.interrupt());
           const status = summarize(this.raw).status;
           if (
             this.submissionTimer &&
@@ -226,6 +251,7 @@ export class PrinterService {
       });
       client.on('error', (error) => {
         if (generation !== this.generation) return;
+        this.filamentChange.interrupt();
         this.connection = 'error';
         this.message = [4, 5, 134, 135].includes(error.code)
           ? 'Xác thực thất bại. Kiểm tra Access Code và Developer Mode.'
@@ -235,8 +261,10 @@ export class PrinterService {
         if (generation === this.generation) {
           this.connection = 'offline';
           this.lastReport = null;
+          this.fieldReports.clear();
           this.message = 'Mất kết nối máy in. App sẽ tự thử lại.';
           this.maintenance.uncertain();
+          this.filamentChange.interrupt();
         }
       });
       client.on('reconnect', () => {
@@ -298,12 +326,13 @@ export class PrinterService {
   async pushall() {
     await this.publish({ pushing: { sequence_id: String(++this.sequence), command: 'pushall' } });
   }
-  async refreshStatus(timeoutMs = 10000) {
+  async refreshStatus(timeoutMs = 10000, fields = healthFields) {
     if (!this.config.get()) throw new AppError('Chưa cấu hình máy in.', 409);
     if (this.configPending) throw new AppError('Đang thay đổi kết nối máy in.', 409);
     return new Promise((resolve, reject) => {
       let timer;
       const waiter = {
+        fields,
         since: this.reportVersion,
         finish: (error) => {
           clearTimeout(timer);
@@ -328,7 +357,10 @@ export class PrinterService {
     });
   }
   async command(input) {
+    if (input.type === 'filamentChange') return this.filamentChange.command(input);
     this.assertReady();
+    if (this.filamentChange.active && !['stop', 'light'].includes(input.type))
+      throw new AppError('Đang đổi filament. Kiểm tra máy trước khi gửi lệnh khác.', 409);
     if (this.jobPending || this.configPending)
       throw new AppError('Đang gửi tác vụ in hoặc đổi kết nối. Đợi quá trình này hoàn tất.', 409);
     if (this.maintenance.active && !['stop', 'light'].includes(input.type))
@@ -384,6 +416,7 @@ export class PrinterService {
     clearTimeout(this.retry);
     clearInterval(this.refresh);
     this.maintenance.disconnect();
+    this.filamentChange.interrupt();
     for (const waiter of this.reportWaiters)
       waiter.finish(new AppError('Kết nối máy in đã thay đổi trong lúc kiểm tra.', 409));
     const client = this.client;

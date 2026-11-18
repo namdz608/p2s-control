@@ -60,6 +60,8 @@ export function summarize(raw) {
         remaining:
           number(tray.remain) !== null && Number(tray.remain) >= 0 ? Number(tray.remain) : null,
         weight: number(tray.tray_weight),
+        nozzleMin: number(tray.nozzle_temp_min),
+        nozzleMax: number(tray.nozzle_temp_max),
       })),
     })),
   };

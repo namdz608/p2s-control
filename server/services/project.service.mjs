@@ -87,6 +87,8 @@ export class ProjectService {
   }
 
   async start(id, input, queueToken) {
+    if (this.printer.filamentChange?.active)
+      throw new AppError('Đợi đổi filament kết thúc trước khi bắt đầu in.', 409);
     if (this.printer.maintenance?.active)
       throw new AppError(
         'Đang hiệu chuẩn hoặc chưa rõ kết quả hiệu chuẩn. Kiểm tra máy trước khi in.',

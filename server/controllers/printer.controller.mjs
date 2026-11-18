@@ -72,7 +72,11 @@ export class PrinterController {
     if (req.body?.type === 'stop' && req.body?.confirmed !== true)
       throw new AppError('Cần xác nhận dừng tác vụ in.');
     if (req.body?.type === 'stop') this.queue?.cancel();
-    await this.printer.command(req.body ?? {});
+    const result = await this.printer.command(req.body ?? {});
+    if (req.body?.type === 'filamentChange') {
+      res.status(202).json({ ok: true, filamentChange: result });
+      return;
+    }
     res.status(202).json({ ok: true, message: 'Đã gửi yêu cầu. Chờ máy in cập nhật trạng thái.' });
   };
 }

@@ -74,6 +74,8 @@ export class PrintQueueService {
   }
 
   async start(input) {
+    if (this.printer.filamentChange?.active)
+      throw new AppError('Đợi đổi filament kết thúc trước khi bắt đầu hàng đợi.', 409);
     if (this.printer.maintenance?.active)
       throw new AppError(
         'Đợi hiệu chuẩn kết thúc và xác minh máy trước khi bắt đầu hàng đợi.',

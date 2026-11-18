@@ -658,12 +658,17 @@
             <div id="usb-list" class="usb-list"></div>
           </div>
           <div id="page-materials" class="page-content" hidden>
-            <div class="material-explainer">
-              <svg><use href="#i-spool" /></svg>
-              <p>
-                Theo dõi vật liệu và độ ẩm từng hộp AMS. Thông tin cập nhật trực tiếp từ máy in.
-              </p>
-            </div>
+            <section class="card filament-change-card">
+              <div class="card-top">
+                <div>
+                  <h2>Đổi filament</h2>
+                  <p id="filament-summary" class="field-help" role="status"></p>
+                </div>
+                <button id="filament-open" class="button secondary" type="button">
+                  Đẩy nhựa cũ
+                </button>
+              </div>
+            </section>
             <div id="ams-full" class="materials-grid"></div>
           </div>
           <footer class="workspace-footer">
@@ -676,6 +681,71 @@
       </div>
     </div>
 
+    <dialog id="filament-dialog" aria-labelledby="filament-title">
+      <div class="dialog-heading">
+        <h2 id="filament-title">Đẩy nhựa cũ và nạp nhựa mới</h2>
+        <button type="button" class="icon-button" data-close="filament-dialog" aria-label="Đóng">
+          <svg><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <p id="filament-status" class="dialog-description" role="status"></p>
+      <form id="filament-form">
+        <div class="form-grid">
+          <label class="full-field">
+            Nguồn filament mới
+            <select id="filament-source" name="source" required></select>
+          </label>
+          <label>
+            Nhiệt độ sợi cũ (°C)
+            <input
+              name="oldTemp"
+              id="filament-old-temp"
+              type="number"
+              min="170"
+              max="300"
+              required
+            />
+          </label>
+          <label>
+            Nhiệt độ sợi mới (°C)
+            <input
+              name="newTemp"
+              id="filament-new-temp"
+              type="number"
+              min="170"
+              max="300"
+              required
+            />
+          </label>
+          <p class="full-field field-help">
+            Dùng nhiệt độ phù hợp với từng cuộn. Sợi cũ cần còn được đầu đùn kẹp.
+          </p>
+        </div>
+        <div class="dialog-actions">
+          <button id="filament-start" type="submit" class="button primary">Bắt đầu nung</button>
+        </div>
+      </form>
+      <div id="filament-actions" class="dialog-actions filament-change-actions" hidden>
+        <button
+          id="filament-cancel"
+          type="button"
+          class="button secondary"
+          data-filament-action="cancel"
+        >
+          Kết thúc thao tác
+        </button>
+        <button
+          id="filament-extra"
+          type="button"
+          class="button secondary"
+          data-filament-action="heatMore"
+        >
+          Đẩy thêm
+        </button>
+        <button id="filament-next" type="button" class="button primary"></button>
+      </div>
+      <p id="filament-error" class="form-error" role="alert"></p>
+    </dialog>
     <dialog id="folder-dialog">
       <form id="folder-form">
         <div class="dialog-heading">
