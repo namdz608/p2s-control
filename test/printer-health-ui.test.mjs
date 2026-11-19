@@ -79,6 +79,21 @@ test('active calibration disables new print submission and explains the reason',
   assert.equal(f.node('#system-check').disabled, true);
 });
 
+test('filament dialog explains why heating is disabled during a live print and re-enables when idle', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.status = 'RUNNING'; UI.printer.nozzle = { current: 218 }; UI.printer.filamentChange = {status:'idle',active:false,message:'Chọn cuộn mới để bắt đầu.'}; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-start').disabled, true);
+  assert.match(f.node('#filament-status').textContent, /Máy đang in.*Chờ bản in kết thúc/);
+  assert.match(f.node('#filament-summary').textContent, /Máy đang in/);
+
+  vm.runInContext(`UI.printer.status = 'FINISH'; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-start').disabled, false);
+  assert.match(f.node('#filament-status').textContent, /Chọn cuộn mới để bắt đầu/);
+});
+
 test('a fresh temperature without fresh fault fields never renders a healthy fault list', async () => {
   const f = await fixture();
   vm.runInContext(

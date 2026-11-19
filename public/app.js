@@ -838,36 +838,48 @@ const filamentCancellable = new Set([
   'uncertain',
 ]);
 
+function filamentStartBlocker() {
+  const p = UI.printer;
+  if (!p.fresh) return 'Chờ dữ liệu mới từ máy in.';
+  if (UI.queue.active) return 'Hàng đợi in đang chạy. Chờ hàng đợi kết thúc để đổi filament.';
+  if (p.jobPending) return 'App đang gửi tác vụ in. Chờ tác vụ kết thúc để đổi filament.';
+  if (p.configPending) return 'Chờ cập nhật kết nối máy in xong để đổi filament.';
+  if (p.maintenance?.active) return 'Chờ hiệu chuẩn kết thúc hoặc kiểm tra máy để đổi filament.';
+  if (['IDLE', 'FINISH', 'FAILED'].includes(p.status)) return '';
+  const inProgress = {
+    RUNNING: 'Máy đang in.',
+    PAUSE: 'Bản in đang tạm dừng.',
+    PREPARE: 'Máy đang chuẩn bị in.',
+    SLICING: 'Máy đang xử lý bản in.',
+  };
+  return Object.hasOwn(inProgress, p.status)
+    ? `${inProgress[p.status]} Chờ bản in kết thúc để đổi filament.`
+    : 'Chờ máy báo trạng thái sẵn sàng để đổi filament.';
+}
+
 function renderFilamentChange() {
   const p = UI.printer;
   const change = p.filamentChange;
   if (!change) return;
-  const startable =
-    p.fresh &&
-    !UI.queue.active &&
-    !p.jobPending &&
-    !p.configPending &&
-    !p.maintenance?.active &&
-    ['IDLE', 'FINISH', 'FAILED'].includes(p.status);
+  const startBlocker = filamentStartBlocker();
   const next = filamentSteps[change.status];
   const lastVerified =
     change.status === 'uncertain' && change.lastVerified
       ? ` Bước gần nhất: ${change.lastVerified}.`
       : '';
-  const progress = change.status !== 'idle' ? `${change.message}${lastVerified}` : '';
+  const statusMessage =
+    !change.active && startBlocker ? startBlocker : `${change.message}${lastVerified}`;
+  const progress = change.status !== 'idle' || startBlocker ? statusMessage : '';
   const nozzle = `Đầu phun ${number(p.nozzle?.current)} °C`;
   const summary = $('#filament-summary');
   const summaryText = progress ? `${nozzle} · ${progress}` : nozzle;
   if (summary.textContent !== summaryText) summary.textContent = summaryText;
   $('#filament-open').textContent = change.active ? 'Xem tiến độ' : 'Đẩy nhựa cũ';
   const status = $('#filament-status');
-  const statusText =
-    !p.fresh && !change.active
-      ? 'Chờ dữ liệu mới từ máy in.'
-      : `${nozzle} · ${change.message}${lastVerified}`;
+  const statusText = `${nozzle} · ${statusMessage}`;
   if (status.textContent !== statusText) status.textContent = statusText;
   $('#filament-form').hidden = change.active;
-  $('#filament-start').disabled = UI.filamentSubmitting || !startable;
+  $('#filament-start').disabled = UI.filamentSubmitting || Boolean(startBlocker);
   const cancel = $('#filament-cancel');
   const extra = $('#filament-extra');
   const button = $('#filament-next');
