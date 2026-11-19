@@ -12,6 +12,7 @@ async function fixture() {
         innerHTML: '',
         hidden: false,
         disabled: false,
+        dataset: {},
         checked: true,
         classList: { toggle() {} },
         addEventListener() {},
@@ -92,6 +93,27 @@ test('filament dialog explains why heating is disabled during a live print and r
   vm.runInContext(`UI.printer.status = 'FINISH'; renderFilamentChange();`, f.context);
   assert.equal(f.node('#filament-start').disabled, false);
   assert.match(f.node('#filament-status').textContent, /Chọn cuộn mới để bắt đầu/);
+});
+
+test('paused AMS pullback exposes the purge controls while the spool-change form stays locked', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.status = 'PAUSE'; UI.printer.printError = 0x07008004; UI.printer.filamentChange = {status:'idle',active:false,pausedPullback:true}; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-start').disabled, true);
+  vm.runInContext(`UI.filamentMode = 'purge'; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-form').hidden, true);
+  assert.equal(f.node('#filament-purge-form').hidden, false);
+  assert.equal(f.node('#filament-purge-start').disabled, false);
+
+  vm.runInContext(
+    `UI.printer.filamentChange = {status:'ready_purge',mode:'purge',active:true,pausedPullback:true}; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-next').dataset.filamentAction, 'pushPurge');
+  assert.equal(f.node('#filament-next').hidden, false);
+  assert.equal(f.node('#filament-extra').hidden, true);
 });
 
 test('a fresh temperature without fresh fault fields never renders a healthy fault list', async () => {

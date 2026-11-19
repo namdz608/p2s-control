@@ -5,9 +5,22 @@ import { makeCommand } from './printer-command.service.mjs';
 
 const resting = new Set(['IDLE', 'FINISH', 'FAILED']);
 const inactive = new Set(['idle', 'completed', 'cancelled']);
-const motion = new Set(['pushing_old', 'unloading', 'loading', 'pushing_new']);
+const motion = new Set(['pushing_old', 'unloading', 'loading', 'pushing_new', 'pushing_purge']);
 const telemetryFields = ['ams_status', 'extruder_state', 'extruder_info'];
 const temperature = (value) => Number.isInteger(value) && value >= 170 && value <= 300;
+const purgeAtTemperature = (current, target) =>
+  Number.isFinite(current) && current >= 170 && Math.abs(current - target) <= 3;
+// The busy bit stays set during this stalled AMS step. Motor direction is checked separately.
+const pausedPullback = (raw) =>
+  raw?.gcode_state === 'PAUSE' && raw.print_error === 0x07008004 && raw.ams_status === 0x104;
+const purgeTimeouts = { ready_purge: 60000, pushing_purge: 15000, restoring_purge: 20000 };
+const purgeFaults = (state, stalled) =>
+  printerFaults(state).some(
+    (fault) =>
+      fault.severity === 'error' &&
+      fault.code !== '0300110000020002' &&
+      !(stalled && (fault.code === '07008004' || /^07002[0-3]0000020011$/.test(fault.code))),
+  );
 const verifiedSteps = {
   ready_old: 'Đầu phun đủ nhiệt cho sợi cũ',
   verify_old: 'Đầu đùn đã dừng đẩy sợi cũ',
@@ -17,6 +30,7 @@ const verifiedSteps = {
   loading: 'Đã rút sợi cũ',
   verify_new: 'Đã nạp sợi mới',
   ready_new: 'Đầu phun đủ nhiệt để đẩy thêm',
+  ready_purge: 'Đầu phun đủ nhiệt để đùn',
 };
 const messages = {
   idle: 'Chọn cuộn mới để bắt đầu.',
@@ -32,6 +46,10 @@ const messages = {
   heating_new: 'Đang nung đầu phun để đẩy thêm sợi mới.',
   ready_new: 'Đã đủ nhiệt. Kiểm tra đầu phun ở trên máng xả rồi bấm Đẩy sợi mới.',
   pushing_new: 'Đang chờ máy xác nhận đã đẩy thêm sợi mới.',
+  heating_purge: 'Đang nung đầu phun. Mở camera để kiểm tra vị trí xả.',
+  ready_purge: 'Đã đủ nhiệt. Xác nhận qua camera đầu phun ở trên máng xả trước khi đùn.',
+  pushing_purge: 'Đang chờ máy báo kết thúc nhịp đùn.',
+  restoring_purge: 'Đang trả nhiệt độ mục tiêu về mức trước khi nung.',
   cooling: 'Đang chờ máy xác nhận đã tắt gia nhiệt.',
   completed: 'Đã hoàn tất đổi filament.',
   cancelled: 'Đã kết thúc thao tác đổi filament.',
@@ -96,6 +114,7 @@ export class PrinterFilamentService {
       message: this.message ?? messages[this.state.status],
       loaded: extruder?.loaded ?? null,
       currentSource: extruder?.source ?? null,
+      pausedPullback: pausedPullback(this.printer.raw.print),
     };
   }
 
@@ -105,7 +124,7 @@ export class PrinterFilamentService {
     if (verifiedSteps[status]) this.state.lastVerified = verifiedSteps[status];
     this.message = message;
     if (this.active && status !== 'uncertain') {
-      this.timer = setTimeout(() => void this.expire(), 180000);
+      this.timer = setTimeout(() => void this.expire(), purgeTimeouts[status] ?? 180000);
       this.timer.unref();
     }
   }
@@ -115,6 +134,26 @@ export class PrinterFilamentService {
   }
 
   async expire() {
+    if (this.state.mode === 'purge') {
+      if (this.state.status !== 'restoring_purge') {
+        try {
+          const { state } = this.checkIdle({ purge: true, faults: false });
+          const pending = this.state.status === 'pushing_purge';
+          await this.restorePurge(
+            state,
+            pending ? 'uncertain' : 'cancelled',
+            pending
+              ? 'Hết thời gian chờ máy xác nhận nhịp đùn. Kiểm tra P2S trước khi thử lại.'
+              : 'Hết thời gian chờ. Đã kết thúc thao tác đùn.',
+          );
+          return;
+        } catch {
+          // The printer may have taken ownership of the heater again.
+        }
+      }
+      this.interrupt('Hết thời gian chờ phản hồi. Kiểm tra vị trí đầu phun và nhiệt độ trên P2S.');
+      return;
+    }
     try {
       if (this.state.status !== 'cooling' && !motion.has(this.state.status)) {
         this.checkIdle({ faults: false });
@@ -129,7 +168,7 @@ export class PrinterFilamentService {
     );
   }
 
-  checkIdle({ faults = true } = {}) {
+  checkIdle({ faults = true, purge = false } = {}) {
     this.printer.assertReady();
     const state = this.printer.snapshot();
     const raw = this.printer.raw.print ?? {};
@@ -146,15 +185,17 @@ export class PrinterFilamentService {
         'Cần dữ liệu mới về đầu đùn và AMS từ P2S. Chạy kiểm tra kết nối rồi thử lại.',
         409,
       );
+    const stalled = purge && pausedPullback(raw);
     if (
-      !resting.has(state.status) ||
-      extruder.busy ||
+      !(resting.has(state.status) || (purge && state.status === 'PAUSE')) ||
       extruder.direction ||
-      ![0, 3].includes(raw.ams_status >> 8)
+      (!stalled && (extruder.busy || ![0, 3].includes(raw.ams_status >> 8)))
     )
       throw new AppError('Máy đang bận hoặc đang đẩy filament. Đợi máy rảnh rồi thử lại.', 409);
-    if (faults && printerFaults(state).some((fault) => fault.severity === 'error'))
-      throw new AppError('Xử lý lỗi trên P2S trước khi đổi filament.', 409);
+    const blocked = purge
+      ? purgeFaults(state, stalled)
+      : printerFaults(state).some((fault) => fault.severity === 'error');
+    if (faults && blocked) throw new AppError('Xử lý lỗi trên P2S trước khi đổi filament.', 409);
     return { state, raw, extruder };
   }
 
@@ -215,13 +256,18 @@ export class PrinterFilamentService {
     if (this.state.status === 'uncertain' && input.action !== 'cancel')
       throw new AppError('Kiểm tra trạng thái máy trước khi kết thúc thao tác hiện tại.', 409);
     this.printer.assertReady();
-    if (!this.telemetryFresh(this.printer.snapshot()))
+    const purge =
+      input.action === 'startPurge' || (this.state.mode === 'purge' && input.action !== 'start');
+    const report = this.printer.snapshot();
+    if (!this.telemetryFresh(report) || (purge && !report.fieldFresh.nozzle_target_temper))
       await this.printer.refreshStatus(10000, [
         'gcode_state',
         'print_error',
         'hms',
         ...telemetryFields,
+        ...(purge ? ['nozzle_target_temper'] : []),
       ]);
+    if (purge) return this.commandPurge(input);
     if (input.action === 'start') {
       if (this.active) throw new AppError('Đang có một thao tác đổi filament.', 409);
       const { raw, extruder } = this.checkIdle();
@@ -317,6 +363,155 @@ export class PrinterFilamentService {
     return this.snapshot();
   }
 
+  async commandPurge(input) {
+    const status = this.state.status;
+    const invalid = () => new AppError('Thao tác không phù hợp với bước đùn hiện tại.', 409);
+    if (input.action === 'startPurge') {
+      if (this.active) throw new AppError('Đang có một thao tác filament.', 409);
+      const { state } = this.checkIdle({ purge: true });
+      if (!temperature(input.temperature)) throw new AppError('Nhập nhiệt độ từ 170 đến 300 °C.');
+      if (
+        !state.fieldFresh.nozzle_target_temper ||
+        !Number.isInteger(state.nozzle.target) ||
+        state.nozzle.target < 0 ||
+        state.nozzle.target > 300
+      )
+        throw new AppError('Chưa đọc được nhiệt độ mục tiêu trước khi đùn.', 409);
+      this.state = { id: randomUUID(), mode: 'purge', temperature: input.temperature };
+      this.previousPurgeTarget = state.nozzle.target;
+      this.purgeHeatSeen = false;
+      this.purgeContextLost = false;
+      this.purgeJob =
+        state.status === 'PAUSE' ? { file: state.activeFile, id: this.purgeJobId() } : null;
+      await this.send('heating_purge', 'set_nozzle_temp', {
+        extruder_index: 0,
+        target_temp: input.temperature,
+      });
+    } else {
+      if (!this.active || input.id !== this.state.id) throw invalid();
+      if (input.action === 'cancel' && !motion.has(status) && status !== 'restoring_purge') {
+        if (this.samePurgeContext(this.printer.snapshot())) {
+          const { state } = this.checkIdle({ purge: true, faults: false });
+          await this.restorePurge(state, 'cancelled', 'Đã kết thúc thao tác đùn.');
+        } else {
+          this.set(
+            'cancelled',
+            'Trạng thái bản in đã thay đổi. P2S đang quản lý nhiệt độ mục tiêu.',
+          );
+        }
+      } else if (input.action === 'pushPurge') {
+        if (status === 'heating_purge') throw new AppError('Đầu phun chưa đủ nhiệt.', 409);
+        if (status !== 'ready_purge') throw invalid();
+        const { state } = this.checkIdle({ purge: true });
+        if (!this.samePurgeContext(state)) throw invalid();
+        if (
+          !state.fieldFresh.nozzle_temper ||
+          !state.fieldFresh.nozzle_target_temper ||
+          state.nozzle.target !== this.state.temperature ||
+          !purgeAtTemperature(state.nozzle.current, this.state.temperature)
+        )
+          throw new AppError('Đầu phun chưa đủ nhiệt hoặc nhiệt độ đã thay đổi.', 409);
+        await this.send('pushing_purge', 'set_extrusion_length', { extruder_index: 0, length: 10 });
+      } else {
+        throw invalid();
+      }
+    }
+    return this.snapshot();
+  }
+
+  purgeJobId() {
+    const report = this.printer.raw.print;
+    return report?.subtask_id ?? report?.task_id ?? report?.job_id ?? null;
+  }
+
+  samePurgeContext(state) {
+    if (this.purgeContextLost) return false;
+    if (!this.purgeJob) return resting.has(state.status);
+    return (
+      state.status === 'PAUSE' &&
+      state.activeFile === this.purgeJob.file &&
+      this.purgeJobId() === this.purgeJob.id
+    );
+  }
+
+  async restorePurge(state, status, message) {
+    if (!this.samePurgeContext(state)) throw new AppError('Trạng thái bản in đã thay đổi.', 409);
+    if (!state.fieldFresh.nozzle_target_temper)
+      throw new AppError('Chưa đọc được nhiệt độ mục tiêu hiện tại.', 409);
+    const target = this.state.temperature;
+    const previous = this.previousPurgeTarget;
+    const heatPending = !this.purgeHeatSeen && state.nozzle.target === previous;
+    if (previous === target || (state.nozzle.target !== target && !heatPending)) {
+      this.set(status, message);
+      return;
+    }
+    this.purgeAfterRestore = { status, message };
+    this.purgeRestoreNeedsProof = heatPending;
+    await this.send('restoring_purge', 'set_nozzle_temp', {
+      extruder_index: 0,
+      target_temp: previous,
+    });
+  }
+
+  async observePurge(delta, snapshot, extruder, rejected, newExtruder) {
+    const status = this.state.status;
+    const raw = this.printer.raw.print;
+    if (delta.nozzle_target_temper === this.state.temperature) this.purgeHeatSeen = true;
+    if (rejected && status === 'pushing_purge' && this.samePurgeContext(snapshot)) {
+      try {
+        const { state } = this.checkIdle({ purge: true, faults: false });
+        await this.restorePurge(
+          state,
+          'cancelled',
+          'P2S từ chối đùn. Kiểm tra thông báo trên máy.',
+        );
+        return;
+      } catch {
+        // Report the failed command below if the target cannot be restored.
+      }
+    }
+    if (!this.samePurgeContext(snapshot)) this.purgeContextLost = true;
+    if (
+      rejected ||
+      !this.samePurgeContext(snapshot) ||
+      (status !== 'restoring_purge' && purgeFaults(snapshot, pausedPullback(raw)))
+    ) {
+      this.interrupt(
+        'P2S từ chối lệnh hoặc trạng thái máy đã thay đổi. Kiểm tra nhiệt độ và camera.',
+      );
+      return;
+    }
+    if (
+      status === 'restoring_purge' &&
+      delta.nozzle_target_temper === this.previousPurgeTarget &&
+      (!this.purgeRestoreNeedsProof || this.purgeHeatSeen || this.accepted)
+    ) {
+      this.set(this.purgeAfterRestore.status, this.purgeAfterRestore.message);
+    } else if (status === 'heating_purge') {
+      if (Number.isFinite(delta.nozzle_temper)) this.observedTemperature = true;
+      if (
+        this.observedTemperature &&
+        raw.nozzle_target_temper === this.state.temperature &&
+        purgeAtTemperature(raw.nozzle_temper, this.state.temperature)
+      )
+        this.set('ready_purge');
+    } else if (status === 'pushing_purge' && newExtruder && extruder) {
+      if (extruder.direction === 1) this.observedAction = true;
+      if ((this.observedAction || this.accepted) && extruder.direction === 0) {
+        try {
+          const { state } = this.checkIdle({ purge: true });
+          await this.restorePurge(
+            state,
+            'completed',
+            'Máy đã phản hồi lệnh đùn. Kiểm tra nhựa đã ra qua camera.',
+          );
+        } catch {
+          this.interrupt('Máy đã báo xong nhịp đùn. Chưa xác nhận được khôi phục nhiệt độ.');
+        }
+      }
+    }
+  }
+
   async observe(report) {
     const delta = report.print;
     if (!delta) return;
@@ -338,6 +533,8 @@ export class PrinterFilamentService {
       this.accepted = true;
     const rejected =
       matchingReply && (['fail', 'failed'].includes(delta.result) || delta.errno < 0);
+    if (this.state.mode === 'purge')
+      return this.observePurge(delta, snapshot, extruder, rejected, newExtruder);
     const newFault =
       (Object.hasOwn(delta, 'print_error') || Object.hasOwn(delta, 'hms')) &&
       printerFaults(snapshot).some((fault) => fault.severity === 'error');

@@ -59,6 +59,7 @@ const UI = {
   temperature: null,
   materialsKey: '',
   filamentSubmitting: false,
+  filamentMode: 'change',
   toastTimer: null,
 };
 
@@ -825,6 +826,7 @@ const filamentSteps = {
   waiting_ams_swap: ['loadAms', 'Đã thay cuộn trong khay'],
   verify_new: ['finish', 'Hoàn tất'],
   ready_new: ['pushNew', 'Đẩy sợi mới'],
+  ready_purge: ['pushPurge', 'Đùn 10 mm'],
 };
 const filamentCancellable = new Set([
   'heating_old',
@@ -835,10 +837,12 @@ const filamentCancellable = new Set([
   'verify_new',
   'heating_new',
   'ready_new',
+  'heating_purge',
+  'ready_purge',
   'uncertain',
 ]);
 
-function filamentStartBlocker() {
+function filamentStartBlocker(purge = false) {
   const p = UI.printer;
   if (!p.fresh) return 'Chờ dữ liệu mới từ máy in.';
   if (UI.queue.active) return 'Hàng đợi in đang chạy. Chờ hàng đợi kết thúc để đổi filament.';
@@ -846,6 +850,8 @@ function filamentStartBlocker() {
   if (p.configPending) return 'Chờ cập nhật kết nối máy in xong để đổi filament.';
   if (p.maintenance?.active) return 'Chờ hiệu chuẩn kết thúc hoặc kiểm tra máy để đổi filament.';
   if (['IDLE', 'FINISH', 'FAILED'].includes(p.status)) return '';
+  if (purge && p.status === 'PAUSE' && (p.filamentChange?.pausedPullback || !p.printError))
+    return '';
   const inProgress = {
     RUNNING: 'Máy đang in.',
     PAUSE: 'Bản in đang tạm dừng.',
@@ -861,25 +867,39 @@ function renderFilamentChange() {
   const p = UI.printer;
   const change = p.filamentChange;
   if (!change) return;
-  const startBlocker = filamentStartBlocker();
+  const purge = change.active ? change.mode === 'purge' : UI.filamentMode === 'purge';
+  const startBlocker = filamentStartBlocker(purge);
   const next = filamentSteps[change.status];
   const lastVerified =
     change.status === 'uncertain' && change.lastVerified
       ? ` Bước gần nhất: ${change.lastVerified}.`
       : '';
-  const statusMessage =
-    !change.active && startBlocker ? startBlocker : `${change.message}${lastVerified}`;
+  const message =
+    change.status !== 'idle' && (change.mode === 'purge') === purge
+      ? `${change.message}${lastVerified}`
+      : purge
+        ? 'Nung đầu phun để đùn một nhịp. Kiểm tra đầu phun ở máng xả qua camera.'
+        : 'Chọn cuộn mới để bắt đầu.';
+  const statusMessage = !change.active && startBlocker ? startBlocker : message;
   const progress = change.status !== 'idle' || startBlocker ? statusMessage : '';
   const nozzle = `Đầu phun ${number(p.nozzle?.current)} °C`;
   const summary = $('#filament-summary');
   const summaryText = progress ? `${nozzle} · ${progress}` : nozzle;
   if (summary.textContent !== summaryText) summary.textContent = summaryText;
-  $('#filament-open').textContent = change.active ? 'Xem tiến độ' : 'Đẩy nhựa cũ';
+  $('#filament-open').textContent =
+    change.active && !purge ? 'Xem tiến độ đổi cuộn' : 'Đẩy nhựa cũ';
+  $('#filament-purge-open').textContent =
+    change.active && purge ? 'Xem tiến độ đùn' : 'Nung và đẩy xuống';
+  $('#filament-title').textContent = purge ? 'Nung và đẩy xuống' : 'Đẩy nhựa cũ và nạp nhựa mới';
   const status = $('#filament-status');
   const statusText = `${nozzle} · ${statusMessage}`;
   if (status.textContent !== statusText) status.textContent = statusText;
-  $('#filament-form').hidden = change.active;
-  $('#filament-start').disabled = UI.filamentSubmitting || Boolean(startBlocker);
+  $('#filament-form').hidden = change.active || purge;
+  $('#filament-purge-form').hidden = change.active || !purge;
+  $('#filament-purge-camera').hidden = !purge;
+  $('#filament-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
+  $('#filament-purge-start').disabled =
+    UI.filamentSubmitting || Boolean(filamentStartBlocker(true));
   const cancel = $('#filament-cancel');
   const extra = $('#filament-extra');
   const button = $('#filament-next');
@@ -912,7 +932,9 @@ function suggestedFilamentTemperature(tray) {
   return '';
 }
 
-function openFilamentChange() {
+function openFilamentChange(mode = 'change') {
+  const activeMode = UI.printer.filamentChange?.active && UI.printer.filamentChange.mode;
+  UI.filamentMode = UI.printer.filamentChange?.active ? activeMode || 'change' : mode;
   const picker = $('#filament-source');
   const trays = availableFilamentTrays();
   picker.innerHTML =
@@ -925,6 +947,10 @@ function openFilamentChange() {
     trays.find((tray) => tray.value === UI.printer.filamentChange?.currentSource),
   );
   $('#filament-new-temp').value = '';
+  $('#filament-purge-temp').value = $('#filament-old-temp').value;
+  $('#filament-camera-preview').removeAttribute('src');
+  $('#filament-camera-preview').hidden = true;
+  $('#filament-camera-status').textContent = '';
   $('#filament-error').textContent = '';
   renderFilamentChange();
   $('#filament-dialog').showModal();
@@ -1512,7 +1538,20 @@ $('#sidebar-settings').addEventListener('click', openSettings);
 $('#banner-action').addEventListener('click', () => openSettings());
 $('#diagnostics-run').addEventListener('click', action(runDiagnostics));
 $('#system-check').addEventListener('click', action(runSystemCheck));
-$('#filament-open').addEventListener('click', openFilamentChange);
+$('#filament-open').addEventListener('click', () => openFilamentChange());
+$('#filament-purge-open').addEventListener('click', () => openFilamentChange('purge'));
+$('#filament-camera-refresh').addEventListener('click', () => {
+  $('#filament-camera-status').textContent = 'Đang lấy ảnh buồng in…';
+  $('#filament-camera-preview').src = `${API_BASE}/camera/snapshot?t=${Date.now()}`;
+});
+$('#filament-camera-preview').addEventListener('load', () => {
+  $('#filament-camera-preview').hidden = false;
+  $('#filament-camera-status').textContent = 'Kiểm tra đầu phun nằm trên máng xả.';
+});
+$('#filament-camera-preview').addEventListener('error', () => {
+  $('#filament-camera-preview').hidden = true;
+  $('#filament-camera-status').textContent = 'Chưa lấy được ảnh camera.';
+});
 $('#filament-source').addEventListener('change', (event) => {
   const source = event.target.value;
   $('#filament-new-temp').value =
@@ -1530,13 +1569,19 @@ $('#filament-form').addEventListener('submit', (event) => {
     newTemp: Number($('#filament-new-temp').value),
   });
 });
+$('#filament-purge-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  return sendFilamentAction('startPurge', { temperature: Number($('#filament-purge-temp').value) });
+});
 $('#filament-actions').addEventListener('click', async (event) => {
   const name = event.target.closest('[data-filament-action]')?.dataset.filamentAction;
   const id = UI.printer.filamentChange?.id;
-  if (name === 'pushOld' || name === 'pushNew') {
+  if (name === 'pushOld' || name === 'pushNew' || name === 'pushPurge') {
     const confirmed = await confirmAction(
       'Kiểm tra vị trí đầu phun',
-      'Xác nhận đầu phun đang ở trên máng xả và không có vật cản.',
+      name === 'pushPurge'
+        ? 'Xác nhận qua camera đầu phun đang ở trên máng xả và không có vật cản.'
+        : 'Xác nhận đầu phun đang ở trên máng xả và không có vật cản.',
       'Xác nhận và đẩy 10 mm',
     );
     if (!confirmed) return;

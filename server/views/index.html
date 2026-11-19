@@ -661,12 +661,17 @@
             <section class="card filament-change-card">
               <div class="card-top">
                 <div>
-                  <h2>Đổi filament</h2>
+                  <h2>Điều khiển filament</h2>
                   <p id="filament-summary" class="field-help" role="status"></p>
                 </div>
-                <button id="filament-open" class="button secondary" type="button">
-                  Đẩy nhựa cũ
-                </button>
+                <div class="filament-card-actions">
+                  <button id="filament-open" class="button secondary" type="button">
+                    Đẩy nhựa cũ
+                  </button>
+                  <button id="filament-purge-open" class="button primary" type="button">
+                    Nung và đẩy xuống
+                  </button>
+                </div>
               </div>
             </section>
             <div id="ams-full" class="materials-grid"></div>
@@ -725,6 +730,24 @@
           <button id="filament-start" type="submit" class="button primary">Bắt đầu nung</button>
         </div>
       </form>
+      <form id="filament-purge-form" hidden>
+        <label>
+          Nhiệt độ đầu phun (°C)
+          <input id="filament-purge-temp" type="number" min="170" max="300" required />
+        </label>
+        <div class="dialog-actions">
+          <button id="filament-purge-start" type="submit" class="button primary">
+            Bắt đầu nung
+          </button>
+        </div>
+      </form>
+      <div id="filament-purge-camera" hidden>
+        <button id="filament-camera-refresh" class="button secondary" type="button">
+          Cập nhật ảnh camera
+        </button>
+        <p id="filament-camera-status" class="field-help" role="status"></p>
+        <img id="filament-camera-preview" class="print-preview" alt="Camera buồng in P2S" hidden />
+      </div>
       <div id="filament-actions" class="dialog-actions filament-change-actions" hidden>
         <button
           id="filament-cancel"

@@ -193,3 +193,152 @@ test('rejects an ungripped old filament and prevents another action after the op
   assert.equal(status(), 'uncertain');
   assert.equal(sent.length, 1);
 });
+
+const stalledPullback = {
+  gcode_state: 'PAUSE',
+  ams_status: 0x104,
+  print_error: 0x07008004,
+  hms: [
+    { attr: 0x07002300, code: 0x00020011 },
+    { attr: 0x03001100, code: 0x00020002 },
+  ],
+  nozzle_target_temper: 42,
+  ...extruder(3, { busy: true, loaded: false }),
+};
+
+test('purge at the paused AMS pullback fault heats, pushes once and restores the previous target', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report(stalledPullback);
+  const start = await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 220,
+  });
+  assert.equal(start.mode, 'purge');
+  assert.equal(status(), 'heating_purge');
+  assert.equal(sent[0].command, 'set_nozzle_temp');
+  assert.equal(sent[0].target_temp, 220);
+  await assert.rejects(action('pushPurge'), /đủ nhiệt/);
+  await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
+  assert.equal(status(), 'ready_purge');
+  await assert.rejects(action('pushPurge', false), /xác nhận/);
+  await action('pushPurge');
+  assert.equal(sent[1].command, 'set_extrusion_length');
+  assert.equal(sent[1].length, 10);
+  await assert.rejects(action('pushPurge'), /bước/);
+  await report({
+    ...extruder(3, { busy: true, moving: true, loaded: false }),
+    print_error: 0x07008004,
+  });
+  await report(extruder(3, { busy: true, loaded: false }));
+  assert.equal(status(), 'restoring_purge');
+  assert.deepEqual(
+    sent.map((message) => message.command),
+    ['set_nozzle_temp', 'set_extrusion_length', 'set_nozzle_temp'],
+  );
+  assert.equal(sent[2].target_temp, 42);
+  await report({ nozzle_target_temper: 42 });
+  assert.equal(status(), 'completed');
+  assert.equal(printer.snapshot().status, 'PAUSE');
+});
+
+test('purge guards a moving extruder and stops sending commands when printing resumes', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  const start = () =>
+    printer.command({
+      type: 'filamentChange',
+      action: 'startPurge',
+      confirmed: true,
+      temperature: 220,
+    });
+  await report({ ...stalledPullback, ...extruder(3, { busy: true, moving: true }) });
+  await assert.rejects(start(), /máy đang bận|đầu đùn đang/i);
+  assert.equal(sent.length, 0);
+  await report(stalledPullback);
+  await start();
+  await report({ nozzle_target_temper: 220, nozzle_temper: 220, gcode_state: 'RUNNING' });
+  await assert.rejects(action('pushPurge'), /trạng thái/);
+  assert.equal(status(), 'uncertain');
+  assert.equal(sent.length, 1);
+});
+
+test('a rejected purge restores temperature without repeating the extrusion', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report(stalledPullback);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 220,
+  });
+  await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
+  await action('pushPurge');
+  await report({ command: sent[1].command, sequence_id: sent[1].sequence_id, result: 'fail' });
+  assert.equal(status(), 'restoring_purge');
+  assert.equal(sent.at(-1).target_temp, 42);
+  await report({ nozzle_target_temper: 42 });
+  assert.equal(status(), 'cancelled');
+  assert.match(printer.snapshot().filamentChange.message, /từ chối đùn/);
+  assert.equal(sent.filter((payload) => payload.command === 'set_extrusion_length').length, 1);
+});
+
+test('cancel purge during heating orders restoration even before a heating report arrives', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report(stalledPullback);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 220,
+  });
+  await action('cancel');
+  assert.equal(status(), 'restoring_purge');
+  await report({ nozzle_target_temper: 42 });
+  assert.equal(status(), 'restoring_purge', 'the old target alone does not confirm restoration');
+  await report({ nozzle_target_temper: 220 });
+  assert.equal(status(), 'restoring_purge');
+  await report({ nozzle_target_temper: 42 });
+  assert.equal(status(), 'cancelled');
+  assert.deepEqual(
+    sent.map((payload) => payload.target_temp),
+    [220, 42],
+  );
+});
+
+test('cancel purge cannot write the old temperature to a different paused print', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report({ ...stalledPullback, gcode_file: 'old-print' });
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 220,
+  });
+  await report({ ...stalledPullback, gcode_file: 'different-print', nozzle_target_temper: 220 });
+  assert.equal(status(), 'uncertain');
+  await action('cancel');
+  assert.equal(status(), 'cancelled');
+  assert.deepEqual(
+    sent.map((payload) => payload.target_temp),
+    [220],
+  );
+});
+
+test('purge requires an actual temperature of at least 170 degrees', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report(stalledPullback);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 170,
+  });
+  await report({ nozzle_target_temper: 170, nozzle_temper: 168 });
+  assert.equal(status(), 'heating_purge');
+  await report({ nozzle_temper: 170 });
+  assert.equal(status(), 'ready_purge');
+  await report({ nozzle_temper: 169 });
+  await assert.rejects(action('pushPurge'), /đủ nhiệt/);
+  assert.equal(sent.length, 1);
+});
