@@ -837,6 +837,7 @@ const filamentCancellable = new Set([
   'verify_new',
   'heating_new',
   'ready_new',
+  'awaiting_purge_heat',
   'heating_purge',
   'ready_purge',
   'uncertain',
@@ -892,7 +893,9 @@ function renderFilamentChange() {
     change.active && purge ? 'Xem tiến độ đùn' : 'Nung và đẩy xuống';
   $('#filament-title').textContent = purge ? 'Nung và đẩy xuống' : 'Đẩy nhựa cũ và nạp nhựa mới';
   const status = $('#filament-status');
-  const statusText = `${nozzle} · ${statusMessage}`;
+  const actualTarget =
+    purge && change.active ? ` · Mục tiêu trên máy ${number(p.nozzle?.target)} °C` : '';
+  const statusText = `${nozzle}${actualTarget} · ${statusMessage}`;
   if (status.textContent !== statusText) status.textContent = statusText;
   $('#filament-form').hidden = change.active || purge;
   $('#filament-purge-form').hidden = change.active || !purge;

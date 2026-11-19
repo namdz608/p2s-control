@@ -216,10 +216,14 @@ test('purge at the paused AMS pullback fault heats, pushes once and restores the
     temperature: 220,
   });
   assert.equal(start.mode, 'purge');
-  assert.equal(status(), 'heating_purge');
-  assert.equal(sent[0].command, 'set_nozzle_temp');
-  assert.equal(sent[0].target_temp, 220);
+  assert.equal(sent[0].command, 'gcode_line');
+  assert.equal(sent[0].param, 'M104 S220\n');
+  assert.equal(status(), 'awaiting_purge_heat');
+  await report({ nozzle_target_temper: 42, nozzle_temper: 42 });
+  assert.equal(status(), 'awaiting_purge_heat');
   await assert.rejects(action('pushPurge'), /đủ nhiệt/);
+  await report({ nozzle_target_temper: 220 });
+  assert.equal(status(), 'heating_purge');
   await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
   assert.equal(status(), 'ready_purge');
   await assert.rejects(action('pushPurge', false), /xác nhận/);
@@ -235,9 +239,9 @@ test('purge at the paused AMS pullback fault heats, pushes once and restores the
   assert.equal(status(), 'restoring_purge');
   assert.deepEqual(
     sent.map((message) => message.command),
-    ['set_nozzle_temp', 'set_extrusion_length', 'set_nozzle_temp'],
+    ['gcode_line', 'set_extrusion_length', 'gcode_line'],
   );
-  assert.equal(sent[2].target_temp, 42);
+  assert.equal(sent[2].param, 'M104 S42\n');
   await report({ nozzle_target_temper: 42 });
   assert.equal(status(), 'completed');
   assert.equal(printer.snapshot().status, 'PAUSE');
@@ -276,7 +280,7 @@ test('a rejected purge restores temperature without repeating the extrusion', as
   await action('pushPurge');
   await report({ command: sent[1].command, sequence_id: sent[1].sequence_id, result: 'fail' });
   assert.equal(status(), 'restoring_purge');
-  assert.equal(sent.at(-1).target_temp, 42);
+  assert.equal(sent.at(-1).param, 'M104 S42\n');
   await report({ nozzle_target_temper: 42 });
   assert.equal(status(), 'cancelled');
   assert.match(printer.snapshot().filamentChange.message, /từ chối đùn/);
@@ -301,8 +305,8 @@ test('cancel purge during heating orders restoration even before a heating repor
   await report({ nozzle_target_temper: 42 });
   assert.equal(status(), 'cancelled');
   assert.deepEqual(
-    sent.map((payload) => payload.target_temp),
-    [220, 42],
+    sent.map((payload) => payload.param),
+    ['M104 S220\n', 'M104 S42\n'],
   );
 });
 
@@ -320,8 +324,8 @@ test('cancel purge cannot write the old temperature to a different paused print'
   await action('cancel');
   assert.equal(status(), 'cancelled');
   assert.deepEqual(
-    sent.map((payload) => payload.target_temp),
-    [220],
+    sent.map((payload) => payload.param),
+    ['M104 S220\n'],
   );
 });
 
