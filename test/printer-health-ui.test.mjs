@@ -135,6 +135,12 @@ test('stuck-nozzle control heats before moving and stays locked while printing',
   assert.equal(f.node('#filament-clear-start').disabled, true);
   assert.match(f.node('#filament-status').textContent, /Máy đang in/);
 
+  vm.runInContext(`UI.printer.status = 'PAUSE'; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-clear-start').disabled, false);
+  assert.equal(f.node('#filament-start').disabled, true);
+  assert.match(f.node('#filament-status').textContent, /cửa/);
+  assert.doesNotMatch(f.node('#filament-status').textContent, /tạm dừng/);
+
   vm.runInContext(
     `UI.printer.status = 'IDLE'; UI.printer.filamentChange = {status:'moving_clear',mode:'clear',active:true,message:'Đang đưa đầu phun ra cửa.'}; renderFilamentChange();`,
     f.context,

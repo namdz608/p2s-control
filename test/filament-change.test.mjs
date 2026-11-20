@@ -470,6 +470,27 @@ test('clearing a stuck nozzle heats and moves while an existing printer error re
   assert.doesNotMatch(sent[1].param, /G150/);
 });
 
+test('clearing a stuck nozzle heats and moves while the print is paused', async (t) => {
+  const { printer, sent, report, status } = setup(t);
+  await report({ gcode_state: 'PAUSE', ...extruder(0, { busy: true }) });
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startClear',
+    confirmed: true,
+    temperature: 230,
+  });
+  assert.equal(status(), 'awaiting_clear_heat');
+  assert.equal(sent[0].param, 'M104 S230\n');
+  await report({
+    gcode_state: 'PAUSE',
+    nozzle_target_temper: 230,
+    nozzle_temper: 230,
+    ...extruder(0, { busy: true }),
+  });
+  assert.equal(status(), 'moving_clear');
+  assert.equal(sent[1].param, doorSweep);
+});
+
 test('clearing a stuck nozzle refuses a busy printer, a missing confirmation, and a cold target', async (t) => {
   const { printer, sent, report } = setup(t);
   await assert.rejects(

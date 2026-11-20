@@ -846,7 +846,7 @@ const filamentCancellable = new Set([
   'uncertain',
 ]);
 
-function filamentStartBlocker(purge = false) {
+function filamentStartBlocker(purge = false, clear = false) {
   const p = UI.printer;
   if (!p.fresh) return 'Chờ dữ liệu mới từ máy in.';
   if (UI.queue.active) return 'Hàng đợi in đang chạy. Chờ hàng đợi kết thúc để đổi filament.';
@@ -854,6 +854,7 @@ function filamentStartBlocker(purge = false) {
   if (p.configPending) return 'Chờ cập nhật kết nối máy in xong để đổi filament.';
   if (p.maintenance?.active) return 'Chờ hiệu chuẩn kết thúc hoặc kiểm tra máy để đổi filament.';
   if (['IDLE', 'FINISH', 'FAILED'].includes(p.status)) return '';
+  if (clear && p.status === 'PAUSE') return '';
   if (purge && p.status === 'PAUSE' && (p.filamentChange?.pausedPullback || !p.printError))
     return '';
   const inProgress = {
@@ -874,7 +875,7 @@ function renderFilamentChange() {
   const mode = change.active ? change.mode || 'change' : UI.filamentMode || 'change';
   const purge = mode === 'purge';
   const clear = mode === 'clear';
-  const startBlocker = filamentStartBlocker(purge);
+  const startBlocker = filamentStartBlocker(purge, clear);
   const next = filamentSteps[change.status];
   const lastVerified =
     change.status === 'uncertain' && change.lastVerified
@@ -918,7 +919,8 @@ function renderFilamentChange() {
   $('#filament-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
   $('#filament-purge-start').disabled =
     UI.filamentSubmitting || Boolean(filamentStartBlocker(true));
-  $('#filament-clear-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
+  $('#filament-clear-start').disabled =
+    UI.filamentSubmitting || Boolean(filamentStartBlocker(false, true));
   const cancel = $('#filament-cancel');
   const extra = $('#filament-extra');
   const button = $('#filament-next');

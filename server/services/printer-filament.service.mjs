@@ -200,7 +200,7 @@ export class PrinterFilamentService {
     }
     try {
       if (this.state.status !== 'cooling' && !motion.has(this.state.status)) {
-        this.checkIdle({ faults: false });
+        this.checkIdle({ faults: false, clear: this.state.mode === 'clear' });
         await this.cool(
           'cancelled',
           this.state.mode === 'clear' ? 'Hết thời gian nung. Đã tắt gia nhiệt.' : undefined,
@@ -217,7 +217,7 @@ export class PrinterFilamentService {
     );
   }
 
-  checkIdle({ faults = true, purge = false } = {}) {
+  checkIdle({ faults = true, purge = false, clear = false } = {}) {
     this.printer.assertReady();
     const state = this.printer.snapshot();
     const raw = this.printer.raw.print ?? {};
@@ -235,10 +235,11 @@ export class PrinterFilamentService {
         409,
       );
     const stalled = purge && pausedPullback(raw);
+    const pausedClear = clear && state.status === 'PAUSE';
     if (
-      !(resting.has(state.status) || (purge && state.status === 'PAUSE')) ||
+      !(resting.has(state.status) || (purge && state.status === 'PAUSE') || pausedClear) ||
       extruder.direction ||
-      (!stalled && (extruder.busy || ![0, 3].includes(raw.ams_status >> 8)))
+      (!stalled && !pausedClear && (extruder.busy || ![0, 3].includes(raw.ams_status >> 8)))
     )
       throw new AppError('Máy đang bận hoặc đang đẩy filament. Đợi máy rảnh rồi thử lại.', 409);
     const blocked = purge
@@ -426,7 +427,7 @@ export class PrinterFilamentService {
       new AppError('Thao tác không phù hợp với bước đưa đầu phun hiện tại.', 409);
     if (input.action === 'startClear') {
       if (this.active) throw new AppError('Đang có một thao tác filament.', 409);
-      this.checkIdle({ faults: false });
+      this.checkIdle({ faults: false, clear: true });
       if (!temperature(input.temperature)) throw new AppError('Nhập nhiệt độ từ 170 đến 300 °C.');
       this.clearHeatSeen = false;
       this.clearMoveSent = false;
@@ -441,7 +442,7 @@ export class PrinterFilamentService {
       if (status === 'moving_clear')
         throw new AppError('Đầu phun đang di chuyển. Đợi máy xác nhận rồi mới tắt gia nhiệt.', 409);
       if (status === 'cooling') throw invalid();
-      this.checkIdle({ faults: false });
+      this.checkIdle({ faults: false, clear: true });
       await this.cool('cancelled', 'Đã tắt gia nhiệt.');
       return this.snapshot();
     }
@@ -452,7 +453,8 @@ export class PrinterFilamentService {
     const status = this.state.status;
     const raw = this.printer.raw.print ?? {};
     if (delta.nozzle_target_temper === this.state.temperature) this.clearHeatSeen = true;
-    const leftIdle = Boolean(delta.gcode_state) && !resting.has(delta.gcode_state);
+    const leftIdle =
+      Boolean(delta.gcode_state) && !resting.has(delta.gcode_state) && delta.gcode_state !== 'PAUSE';
     if (rejected || leftIdle) {
       this.interrupt(
         leftIdle
@@ -491,7 +493,7 @@ export class PrinterFilamentService {
     if (this.clearMoveSent) return;
     this.clearMoveSent = true;
     try {
-      this.checkIdle({ faults: false });
+      this.checkIdle({ faults: false, clear: true });
       // The blob is already at the rear chute. Raise, travel to the front door, then sweep.
       await this.send('moving_clear', 'gcode_line', { param: doorSweep });
     } catch {
