@@ -414,7 +414,7 @@ export class PrinterFilamentService {
       new AppError('Thao tác không phù hợp với bước đưa đầu phun hiện tại.', 409);
     if (input.action === 'startClear') {
       if (this.active) throw new AppError('Đang có một thao tác filament.', 409);
-      this.checkIdle();
+      this.checkIdle({ faults: false });
       if (!temperature(input.temperature)) throw new AppError('Nhập nhiệt độ từ 170 đến 300 °C.');
       this.clearHeatSeen = false;
       this.clearMoveSent = false;
@@ -441,10 +441,7 @@ export class PrinterFilamentService {
     const raw = this.printer.raw.print ?? {};
     if (delta.nozzle_target_temper === this.state.temperature) this.clearHeatSeen = true;
     const leftIdle = Boolean(delta.gcode_state) && !resting.has(delta.gcode_state);
-    const fault =
-      (Object.hasOwn(delta, 'print_error') || Object.hasOwn(delta, 'hms')) &&
-      printerFaults(snapshot).some((item) => item.severity === 'error');
-    if (rejected || leftIdle || fault) {
+    if (rejected || leftIdle) {
       this.interrupt(
         leftIdle
           ? 'Máy đã rời trạng thái rảnh. Không di chuyển đầu phun. Kiểm tra P2S.'
@@ -482,7 +479,7 @@ export class PrinterFilamentService {
     if (this.clearMoveSent) return;
     this.clearMoveSent = true;
     try {
-      this.checkIdle();
+      this.checkIdle({ faults: false });
       // G150.3 is the P2S firmware move to the calibrated purge chute.
       await this.send('moving_clear', 'gcode_line', { param: 'G150.3\n' });
     } catch {

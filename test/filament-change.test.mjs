@@ -436,6 +436,26 @@ test('a hot nozzle does not move once the printer leaves idle or the extruder is
   );
 });
 
+test('clearing a stuck nozzle heats and moves while an existing printer error remains', async (t) => {
+  const { printer, sent, report, status } = setup(t);
+  const stuck = {
+    print_error: 0x03004001,
+    hms: [{ attr: 0x07000000, code: 0x00020001 }],
+  };
+  await report(stuck);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startClear',
+    confirmed: true,
+    temperature: 220,
+  });
+  assert.equal(status(), 'awaiting_clear_heat');
+  assert.equal(sent[0].param, 'M104 S220\n');
+  await report({ ...stuck, nozzle_target_temper: 220, nozzle_temper: 220 });
+  assert.equal(status(), 'moving_clear');
+  assert.equal(sent[1].param, 'G150.3\n');
+});
+
 test('clearing a stuck nozzle refuses a busy printer, a missing confirmation, and a cold target', async (t) => {
   const { printer, sent, report } = setup(t);
   await assert.rejects(
