@@ -884,7 +884,7 @@ function renderFilamentChange() {
     change.status !== 'idle' && (change.mode || 'change') === mode
       ? `${change.message}${lastVerified}`
       : clear
-        ? 'Nung đầu phun cho nhựa cũ mềm, rồi đưa đầu phun tới máng xả. Bàn in phải trống.'
+        ? 'Nung đầu phun cho nhựa cũ mềm, rồi đưa đầu phun ra cửa và di chuyển quanh đó. Bàn in phải trống.'
         : purge
           ? 'Nung đầu phun để đùn một nhịp. Kiểm tra đầu phun ở máng xả qua camera.'
           : 'Chọn cuộn mới để bắt đầu.';
@@ -900,9 +900,9 @@ function renderFilamentChange() {
   $('#filament-purge-open').textContent =
     activeMode === 'purge' ? 'Xem tiến độ đùn' : 'Nung và đẩy xuống';
   $('#filament-clear-open').textContent =
-    activeMode === 'clear' ? 'Xem đầu phun' : 'Nung và đưa ra máng';
+    activeMode === 'clear' ? 'Xem đầu phun' : 'Nung và đưa ra cửa';
   $('#filament-title').textContent = clear
-    ? 'Nung và đưa đầu phun tới máng xả'
+    ? 'Nung và đưa đầu phun ra cửa'
     : purge
       ? 'Nung và đẩy xuống'
       : 'Đẩy nhựa cũ và nạp nhựa mới';
@@ -1569,7 +1569,7 @@ $('#filament-camera-preview').addEventListener('load', () => {
   $('#filament-camera-preview').hidden = false;
   $('#filament-camera-status').textContent =
     UI.filamentMode === 'clear'
-      ? 'Theo dõi đầu phun trên đường tới máng xả.'
+      ? 'Theo dõi đầu phun đang ra phía cửa.'
       : 'Kiểm tra đầu phun nằm trên máng xả.';
 });
 $('#filament-camera-preview').addEventListener('error', () => {
@@ -1601,8 +1601,8 @@ $('#filament-clear-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const temperature = Number($('#filament-clear-temp').value);
   const confirmed = await confirmAction(
-    'Nung và đưa đầu phun tới máng xả?',
-    `Đầu phun sẽ nung tới ${temperature}°C. Khi đủ nhiệt, P2S tự đưa đầu phun tới máng xả. Bàn in phải trống và không đưa tay vào buồng.`,
+    'Nung và đưa đầu phun ra cửa?',
+    `Đầu phun sẽ nung tới ${temperature}°C. Khi đủ nhiệt, P2S nâng đầu phun, đưa ra phía cửa và di chuyển qua lại. Bàn in phải trống và không đưa tay vào buồng.`,
     'Nung rồi di chuyển',
   );
   if (!confirmed) return;

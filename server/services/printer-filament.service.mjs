@@ -15,6 +15,18 @@ const motion = new Set([
 ]);
 const telemetryFields = ['ams_status', 'extruder_state', 'extruder_info'];
 const temperature = (value) => Number.isInteger(value) && value >= 170 && value <= 300;
+const doorSweep =
+  [
+    'G90',
+    'G1 Z200 F1200',
+    'G1 X128 Y40 F6000',
+    'G1 Z120 F800',
+    'G1 X70 F2400',
+    'G1 X186 F2400',
+    'G1 X128 F2400',
+    'G1 Y70 F2400',
+    'G1 Y40 F2400',
+  ].join('\n') + '\n';
 const purgeAtTemperature = (current, target) =>
   Number.isFinite(current) && current >= 170 && Math.abs(current - target) <= 3;
 // The busy bit stays set during this stalled AMS step. Motor direction is checked separately.
@@ -67,10 +79,10 @@ const messages = {
   pushing_purge: 'Đang chờ máy báo kết thúc nhịp đùn.',
   restoring_purge: 'Đang trả nhiệt độ mục tiêu về mức trước khi nung.',
   awaiting_clear_heat: 'Đã gửi yêu cầu nung. Đang chờ P2S xác nhận nhiệt độ.',
-  heating_clear: 'Đang nung đầu phun. Đủ nhiệt sẽ tự đưa đầu phun tới máng xả.',
-  moving_clear: 'Đầu phun đã đủ nhiệt. Đang đưa đầu phun tới máng xả.',
+  heating_clear: 'Đang nung đầu phun. Đủ nhiệt sẽ đưa đầu phun ra cửa và di chuyển quanh đó.',
+  moving_clear: 'Đầu phun đã đủ nhiệt. Đang đưa ra cửa.',
   parked_clear:
-    'Đầu phun đã nhận lệnh tới máng xả và vẫn đang nóng. Kéo nhựa cũ ra, rồi bấm Kết thúc để tắt gia nhiệt.',
+    'Đầu phun đã ra phía cửa và vẫn đang nóng. Kéo nhựa cũ, rồi bấm Kết thúc để tắt gia nhiệt.',
   cooling: 'Đang chờ máy xác nhận đã tắt gia nhiệt.',
   completed: 'Đã hoàn tất đổi filament.',
   cancelled: 'Đã kết thúc thao tác đổi filament.',
@@ -457,7 +469,7 @@ export class PrinterFilamentService {
       if (status === 'moving_clear' && this.accepted)
         this.set(
           'parked_clear',
-          'Đầu phun đã nhận lệnh tới máng xả và vẫn đang nóng. Kéo nhựa cũ ra, rồi bấm Kết thúc để tắt gia nhiệt.',
+          'Đầu phun đã ra phía cửa và vẫn đang nóng. Kéo nhựa cũ, rồi bấm Kết thúc để tắt gia nhiệt.',
         );
       return;
     }
@@ -480,8 +492,8 @@ export class PrinterFilamentService {
     this.clearMoveSent = true;
     try {
       this.checkIdle({ faults: false });
-      // G150.3 is the P2S firmware move to the calibrated purge chute.
-      await this.send('moving_clear', 'gcode_line', { param: 'G150.3\n' });
+      // The blob is already at the rear chute. Raise, travel to the front door, then sweep.
+      await this.send('moving_clear', 'gcode_line', { param: doorSweep });
     } catch {
       this.interrupt('Đầu phun đã đủ nhiệt nhưng chưa di chuyển được. Kiểm tra máy đang rảnh.');
     }

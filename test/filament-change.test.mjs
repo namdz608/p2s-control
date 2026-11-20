@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import { PrinterService } from '../server/services/printer.service.mjs';
 import { mergeReport } from '../server/models/printer-state.model.mjs';
 
+const doorSweep = [
+  'G90',
+  'G1 Z200 F1200',
+  'G1 X128 Y40 F6000',
+  'G1 Z120 F800',
+  'G1 X70 F2400',
+  'G1 X186 F2400',
+  'G1 X128 F2400',
+  'G1 Y70 F2400',
+  'G1 Y40 F2400',
+  '',
+].join('\n');
 const extruder = (slot = 0, { busy = false, moving = false, loaded = slot !== 255 } = {}) => ({
   device: {
     extruder: {
@@ -370,7 +382,7 @@ test('purge requires an actual temperature of at least 170 degrees', async (t) =
   assert.equal(sent.length, 1);
 });
 
-test('heats the nozzle and only then moves it to the purge chute', async (t) => {
+test('heats the nozzle and only then moves it out to the front door', async (t) => {
   const { printer, sent, report, action, status } = setup(t);
   await printer.command({
     type: 'filamentChange',
@@ -389,11 +401,12 @@ test('heats the nozzle and only then moves it to the purge chute', async (t) => 
   assert.equal(sent.length, 1);
   await report({ nozzle_temper: 220 });
   assert.equal(status(), 'moving_clear');
-  assert.equal(sent[1].param, 'G150.3\n');
+  assert.equal(sent[1].param, doorSweep);
+  assert.doesNotMatch(sent[1].param, /G150/);
   await report({ command: 'gcode_line', sequence_id: sent[1].sequence_id, result: 'success' });
   assert.equal(status(), 'parked_clear');
   assert.equal(sent.length, 2);
-  assert.match(printer.snapshot().filamentChange.message, /máng xả/);
+  assert.match(printer.snapshot().filamentChange.message, /cửa/);
   await action('cancel');
   assert.equal(sent.at(-1).param, 'M104 S0\n');
   await report({ nozzle_target_temper: 0 });
@@ -453,7 +466,8 @@ test('clearing a stuck nozzle heats and moves while an existing printer error re
   assert.equal(sent[0].param, 'M104 S220\n');
   await report({ ...stuck, nozzle_target_temper: 220, nozzle_temper: 220 });
   assert.equal(status(), 'moving_clear');
-  assert.equal(sent[1].param, 'G150.3\n');
+  assert.equal(sent[1].param, doorSweep);
+  assert.doesNotMatch(sent[1].param, /G150/);
 });
 
 test('clearing a stuck nozzle refuses a busy printer, a missing confirmation, and a cold target', async (t) => {
@@ -484,7 +498,7 @@ test('clearing a stuck nozzle refuses a busy printer, a missing confirmation, an
   assert.equal(sent.length, 0);
 });
 
-test('a rejected chute move is not sent again', async (t) => {
+test('a rejected door move is not sent again', async (t) => {
   const { printer, sent, report, status } = setup(t);
   await printer.command({
     type: 'filamentChange',
@@ -493,7 +507,8 @@ test('a rejected chute move is not sent again', async (t) => {
     temperature: 220,
   });
   await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
-  assert.equal(sent[1].param, 'G150.3\n');
+  assert.equal(sent[1].param, doorSweep);
+  assert.doesNotMatch(sent[1].param, /G150/);
   await report({ command: 'gcode_line', sequence_id: sent[1].sequence_id, result: 'fail' });
   assert.equal(status(), 'uncertain');
   await report({ nozzle_temper: 220, nozzle_target_temper: 220 });
