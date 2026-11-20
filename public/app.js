@@ -840,6 +840,9 @@ const filamentCancellable = new Set([
   'awaiting_purge_heat',
   'heating_purge',
   'ready_purge',
+  'awaiting_clear_heat',
+  'heating_clear',
+  'parked_clear',
   'uncertain',
 ]);
 
@@ -868,7 +871,9 @@ function renderFilamentChange() {
   const p = UI.printer;
   const change = p.filamentChange;
   if (!change) return;
-  const purge = change.active ? change.mode === 'purge' : UI.filamentMode === 'purge';
+  const mode = change.active ? change.mode || 'change' : UI.filamentMode || 'change';
+  const purge = mode === 'purge';
+  const clear = mode === 'clear';
   const startBlocker = filamentStartBlocker(purge);
   const next = filamentSteps[change.status];
   const lastVerified =
@@ -876,33 +881,44 @@ function renderFilamentChange() {
       ? ` Bước gần nhất: ${change.lastVerified}.`
       : '';
   const message =
-    change.status !== 'idle' && (change.mode === 'purge') === purge
+    change.status !== 'idle' && (change.mode || 'change') === mode
       ? `${change.message}${lastVerified}`
-      : purge
-        ? 'Nung đầu phun để đùn một nhịp. Kiểm tra đầu phun ở máng xả qua camera.'
-        : 'Chọn cuộn mới để bắt đầu.';
+      : clear
+        ? 'Nung đầu phun cho nhựa cũ mềm, rồi đưa đầu phun tới máng xả. Bàn in phải trống.'
+        : purge
+          ? 'Nung đầu phun để đùn một nhịp. Kiểm tra đầu phun ở máng xả qua camera.'
+          : 'Chọn cuộn mới để bắt đầu.';
   const statusMessage = !change.active && startBlocker ? startBlocker : message;
   const progress = change.status !== 'idle' || startBlocker ? statusMessage : '';
   const nozzle = `Đầu phun ${number(p.nozzle?.current)} °C`;
   const summary = $('#filament-summary');
   const summaryText = progress ? `${nozzle} · ${progress}` : nozzle;
   if (summary.textContent !== summaryText) summary.textContent = summaryText;
+  const activeMode = change.active ? change.mode || 'change' : null;
   $('#filament-open').textContent =
-    change.active && !purge ? 'Xem tiến độ đổi cuộn' : 'Đẩy nhựa cũ';
+    activeMode === 'change' ? 'Xem tiến độ đổi cuộn' : 'Đẩy nhựa cũ';
   $('#filament-purge-open').textContent =
-    change.active && purge ? 'Xem tiến độ đùn' : 'Nung và đẩy xuống';
-  $('#filament-title').textContent = purge ? 'Nung và đẩy xuống' : 'Đẩy nhựa cũ và nạp nhựa mới';
+    activeMode === 'purge' ? 'Xem tiến độ đùn' : 'Nung và đẩy xuống';
+  $('#filament-clear-open').textContent =
+    activeMode === 'clear' ? 'Xem đầu phun' : 'Nung và đưa ra máng';
+  $('#filament-title').textContent = clear
+    ? 'Nung và đưa đầu phun tới máng xả'
+    : purge
+      ? 'Nung và đẩy xuống'
+      : 'Đẩy nhựa cũ và nạp nhựa mới';
   const status = $('#filament-status');
   const actualTarget =
-    purge && change.active ? ` · Mục tiêu trên máy ${number(p.nozzle?.target)} °C` : '';
+    (purge || clear) && change.active ? ` · Mục tiêu trên máy ${number(p.nozzle?.target)} °C` : '';
   const statusText = `${nozzle}${actualTarget} · ${statusMessage}`;
   if (status.textContent !== statusText) status.textContent = statusText;
-  $('#filament-form').hidden = change.active || purge;
+  $('#filament-form').hidden = change.active || purge || clear;
   $('#filament-purge-form').hidden = change.active || !purge;
-  $('#filament-purge-camera').hidden = !purge;
+  $('#filament-clear-form').hidden = change.active || !clear;
+  $('#filament-purge-camera').hidden = !(purge || clear);
   $('#filament-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
   $('#filament-purge-start').disabled =
     UI.filamentSubmitting || Boolean(filamentStartBlocker(true));
+  $('#filament-clear-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
   const cancel = $('#filament-cancel');
   const extra = $('#filament-extra');
   const button = $('#filament-next');
@@ -951,6 +967,7 @@ function openFilamentChange(mode = 'change') {
   );
   $('#filament-new-temp').value = '';
   $('#filament-purge-temp').value = $('#filament-old-temp').value;
+  $('#filament-clear-temp').value = $('#filament-old-temp').value || '220';
   $('#filament-camera-preview').removeAttribute('src');
   $('#filament-camera-preview').hidden = true;
   $('#filament-camera-status').textContent = '';
@@ -1543,13 +1560,17 @@ $('#diagnostics-run').addEventListener('click', action(runDiagnostics));
 $('#system-check').addEventListener('click', action(runSystemCheck));
 $('#filament-open').addEventListener('click', () => openFilamentChange());
 $('#filament-purge-open').addEventListener('click', () => openFilamentChange('purge'));
+$('#filament-clear-open').addEventListener('click', () => openFilamentChange('clear'));
 $('#filament-camera-refresh').addEventListener('click', () => {
   $('#filament-camera-status').textContent = 'Đang lấy ảnh buồng in…';
   $('#filament-camera-preview').src = `${API_BASE}/camera/snapshot?t=${Date.now()}`;
 });
 $('#filament-camera-preview').addEventListener('load', () => {
   $('#filament-camera-preview').hidden = false;
-  $('#filament-camera-status').textContent = 'Kiểm tra đầu phun nằm trên máng xả.';
+  $('#filament-camera-status').textContent =
+    UI.filamentMode === 'clear'
+      ? 'Theo dõi đầu phun trên đường tới máng xả.'
+      : 'Kiểm tra đầu phun nằm trên máng xả.';
 });
 $('#filament-camera-preview').addEventListener('error', () => {
   $('#filament-camera-preview').hidden = true;
@@ -1575,6 +1596,17 @@ $('#filament-form').addEventListener('submit', (event) => {
 $('#filament-purge-form').addEventListener('submit', (event) => {
   event.preventDefault();
   return sendFilamentAction('startPurge', { temperature: Number($('#filament-purge-temp').value) });
+});
+$('#filament-clear-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const temperature = Number($('#filament-clear-temp').value);
+  const confirmed = await confirmAction(
+    'Nung và đưa đầu phun tới máng xả?',
+    `Đầu phun sẽ nung tới ${temperature}°C. Khi đủ nhiệt, P2S tự đưa đầu phun tới máng xả. Bàn in phải trống và không đưa tay vào buồng.`,
+    'Nung rồi di chuyển',
+  );
+  if (!confirmed) return;
+  return sendFilamentAction('startClear', { temperature });
 });
 $('#filament-actions').addEventListener('click', async (event) => {
   const name = event.target.closest('[data-filament-action]')?.dataset.filamentAction;

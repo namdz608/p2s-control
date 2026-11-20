@@ -671,6 +671,9 @@
                   <button id="filament-purge-open" class="button primary" type="button">
                     Nung và đẩy xuống
                   </button>
+                  <button id="filament-clear-open" class="button secondary" type="button">
+                    Nung và đưa ra máng
+                  </button>
                 </div>
               </div>
             </section>
@@ -728,6 +731,20 @@
         </div>
         <div class="dialog-actions">
           <button id="filament-start" type="submit" class="button primary">Bắt đầu nung</button>
+        </div>
+      </form>
+      <form id="filament-clear-form" hidden>
+        <label>
+          Nhiệt độ đầu phun (°C)
+          <input id="filament-clear-temp" type="number" min="170" max="300" value="220" required />
+        </label>
+        <p class="field-help">
+          Nhựa cũ mềm rồi máy mới đưa đầu phun tới máng xả. Giữ bàn in trống và theo dõi camera.
+        </p>
+        <div class="dialog-actions">
+          <button id="filament-clear-start" type="submit" class="button primary">
+            Nung rồi di chuyển
+          </button>
         </div>
       </form>
       <form id="filament-purge-form" hidden>

@@ -116,6 +116,35 @@ test('paused AMS pullback exposes the purge controls while the spool-change form
   assert.equal(f.node('#filament-extra').hidden, true);
 });
 
+test('stuck-nozzle control heats before moving and stays locked while printing', async () => {
+  const f = await fixture();
+  const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="filament-clear-open"/);
+  assert.match(html, /id="filament-clear-temp"/);
+  vm.runInContext(
+    `UI.printer.nozzle = { current: 32, target: 0 }; UI.printer.filamentChange = {status:'idle',active:false,message:'Chọn cuộn mới để bắt đầu.'}; UI.filamentMode = 'clear'; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-clear-form').hidden, false);
+  assert.equal(f.node('#filament-form').hidden, true);
+  assert.equal(f.node('#filament-clear-start').disabled, false);
+  assert.match(f.node('#filament-status').textContent, /máng xả/);
+  assert.equal(f.node('#filament-purge-camera').hidden, false);
+
+  vm.runInContext(`UI.printer.status = 'RUNNING'; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-clear-start').disabled, true);
+  assert.match(f.node('#filament-status').textContent, /Máy đang in/);
+
+  vm.runInContext(
+    `UI.printer.status = 'IDLE'; UI.printer.filamentChange = {status:'moving_clear',mode:'clear',active:true,message:'Đang đưa đầu phun tới máng xả.'}; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-clear-open').textContent, 'Xem đầu phun');
+  assert.equal(f.node('#filament-cancel').hidden, true);
+  assert.equal(f.node('#filament-next').hidden, true);
+  assert.match(f.node('#filament-summary').textContent, /Đang đưa đầu phun tới máng xả/);
+});
+
 test('a fresh temperature without fresh fault fields never renders a healthy fault list', async () => {
   const f = await fixture();
   vm.runInContext(

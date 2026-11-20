@@ -310,6 +310,29 @@ test('cancel purge during heating orders restoration even before a heating repor
   );
 });
 
+test('ending an unconfirmed purge unlocks resume when the nozzle is already at the old target', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report(stalledPullback);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 240,
+  });
+  await printer.filamentChange.expire();
+  assert.equal(status(), 'restoring_purge');
+  await printer.filamentChange.expire();
+  assert.equal(status(), 'uncertain');
+  assert.equal(printer.snapshot().filamentChange.active, true);
+  const sentBeforeCancel = sent.length;
+  await action('cancel');
+  assert.equal(status(), 'cancelled');
+  assert.equal(printer.snapshot().filamentChange.active, false);
+  assert.equal(sent.length, sentBeforeCancel);
+  const controlsLocked = Boolean(printer.snapshot().filamentChange.active);
+  assert.equal(controlsLocked || printer.snapshot().status !== 'PAUSE', false);
+});
+
 test('cancel purge cannot write the old temperature to a different paused print', async (t) => {
   const { printer, sent, report, action, status } = setup(t);
   await report({ ...stalledPullback, gcode_file: 'old-print' });
@@ -345,4 +368,114 @@ test('purge requires an actual temperature of at least 170 degrees', async (t) =
   await report({ nozzle_temper: 169 });
   await assert.rejects(action('pushPurge'), /đủ nhiệt/);
   assert.equal(sent.length, 1);
+});
+
+test('heats the nozzle and only then moves it to the purge chute', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startClear',
+    confirmed: true,
+    temperature: 220,
+  });
+  assert.equal(status(), 'awaiting_clear_heat');
+  assert.equal(sent[0].command, 'gcode_line');
+  assert.equal(sent[0].param, 'M104 S220\n');
+  await report({ nozzle_temper: 220 });
+  assert.equal(status(), 'awaiting_clear_heat');
+  assert.equal(sent.length, 1);
+  await report({ nozzle_target_temper: 220, nozzle_temper: 200 });
+  assert.equal(status(), 'heating_clear');
+  assert.equal(sent.length, 1);
+  await report({ nozzle_temper: 220 });
+  assert.equal(status(), 'moving_clear');
+  assert.equal(sent[1].param, 'G150.3\n');
+  await report({ command: 'gcode_line', sequence_id: sent[1].sequence_id, result: 'success' });
+  assert.equal(status(), 'parked_clear');
+  assert.equal(sent.length, 2);
+  assert.match(printer.snapshot().filamentChange.message, /máng xả/);
+  await action('cancel');
+  assert.equal(sent.at(-1).param, 'M104 S0\n');
+  await report({ nozzle_target_temper: 0 });
+  assert.equal(status(), 'cancelled');
+});
+
+test('a hot nozzle does not move once the printer leaves idle or the extruder is moving', async (t) => {
+  const { printer, sent, report, status } = setup(t);
+  const start = () =>
+    printer.command({
+      type: 'filamentChange',
+      action: 'startClear',
+      confirmed: true,
+      temperature: 220,
+    });
+  await start();
+  await report({ gcode_state: 'RUNNING', nozzle_target_temper: 220, nozzle_temper: 220 });
+  assert.equal(status(), 'uncertain');
+  assert.deepEqual(
+    sent.map((payload) => payload.param),
+    ['M104 S220\n'],
+  );
+
+  const moving = setup(t);
+  await moving.printer.command({
+    type: 'filamentChange',
+    action: 'startClear',
+    confirmed: true,
+    temperature: 220,
+  });
+  await moving.report({
+    nozzle_target_temper: 220,
+    nozzle_temper: 220,
+    ...extruder(0, { moving: true }),
+  });
+  assert.equal(moving.status(), 'uncertain');
+  assert.deepEqual(
+    moving.sent.map((payload) => payload.param),
+    ['M104 S220\n'],
+  );
+});
+
+test('clearing a stuck nozzle refuses a busy printer, a missing confirmation, and a cold target', async (t) => {
+  const { printer, sent, report } = setup(t);
+  await assert.rejects(
+    printer.command({ type: 'filamentChange', action: 'startClear', temperature: 220 }),
+    /xác nhận/i,
+  );
+  await assert.rejects(
+    printer.command({
+      type: 'filamentChange',
+      action: 'startClear',
+      confirmed: true,
+      temperature: 160,
+    }),
+    /170/,
+  );
+  await report({ gcode_state: 'RUNNING' });
+  await assert.rejects(
+    printer.command({
+      type: 'filamentChange',
+      action: 'startClear',
+      confirmed: true,
+      temperature: 220,
+    }),
+    /bận|rảnh/i,
+  );
+  assert.equal(sent.length, 0);
+});
+
+test('a rejected chute move is not sent again', async (t) => {
+  const { printer, sent, report, status } = setup(t);
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startClear',
+    confirmed: true,
+    temperature: 220,
+  });
+  await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
+  assert.equal(sent[1].param, 'G150.3\n');
+  await report({ command: 'gcode_line', sequence_id: sent[1].sequence_id, result: 'fail' });
+  assert.equal(status(), 'uncertain');
+  await report({ nozzle_temper: 220, nozzle_target_temper: 220 });
+  assert.equal(sent.length, 2);
 });
