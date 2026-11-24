@@ -48,9 +48,17 @@ export class ProjectService {
     return this.folders.add(name);
   }
 
-  async preview(id) {
+  async preview(id, plate) {
     const project = await this.model.get(id);
-    const image = await readPlatePreview(this.model.file(project.id, 'gcode.3mf'));
+    let plateNumber;
+    if (plate !== undefined && plate !== '') {
+      if (typeof plate !== 'string' || !/^[1-9]\d{0,2}$/.test(plate))
+        throw new AppError('Plate không có trong tệp in.', 404);
+      plateNumber = Number(plate);
+      if (!project.plates.some((item) => item.number === plateNumber))
+        throw new AppError('Plate không có trong tệp in.', 404);
+    }
+    const image = await readPlatePreview(this.model.file(project.id, 'gcode.3mf'), plateNumber);
     if (!image) throw new AppError('Tệp không có ảnh xem trước.', 404);
     return image;
   }

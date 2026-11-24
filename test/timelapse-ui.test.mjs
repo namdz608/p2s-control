@@ -43,6 +43,10 @@ test('timelapse library escapes names, exposes playback/download and shows serve
   assert.match(f.node('#timelapse-list').innerHTML, /&lt;script/);
   assert.doesNotMatch(f.node('#timelapse-list').innerHTML, /<script>/);
   assert.match(f.node('#timelapse-list').innerHTML, /download=1/);
+  assert.match(
+    f.node('#timelapse-list').innerHTML,
+    /class="timelapse-play"[^>]*data-timelapse-action="play"/,
+  );
   assert.match(f.node('#timelapse-list').innerHTML, /data-timelapse-action="play"/);
   vm.runInContext(
     `UI.timelapse.active={id:'a'.repeat(32),status:'recording',frames:3,interval:10,fps:24,name:'Đang in',mode:'auto'};UI.timelapse.busy=true;renderTimelapse();`,

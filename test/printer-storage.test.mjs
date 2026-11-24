@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { Writable } from 'node:stream';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import vm from 'node:vm';
@@ -112,6 +113,47 @@ test('listing reads the USB directory and hides the access code when FTPS fails'
     assert.equal(error.message.includes('secret-code'), false);
     return true;
   });
+});
+
+test('opening a USB timelapse streams the requested mp4 bytes and refuses other files', async () => {
+  const body = Buffer.from('0123456789abcdef');
+  const downloaded = [];
+  const ftp = async (_config, task) =>
+    task({
+      async list() {
+        return [
+          { name: 'video_2026-11-07_23-59-28.mp4', type: FileType.File, size: body.length },
+          { name: 'notes.txt', type: FileType.File, size: 4 },
+        ];
+      },
+      async downloadTo(destination, remote, startAt = 0) {
+        downloaded.push([remote, startAt]);
+        const rest = body.subarray(startAt);
+        for (let offset = 0; offset < rest.length; offset += 4) {
+          if (destination.destroyed) return;
+          destination.write(rest.subarray(offset, offset + 4));
+        }
+        if (!destination.destroyed) destination.end();
+      },
+    });
+  const { service: files } = service(ftp);
+  await assert.rejects(files.openVideo('/timelapse/notes.txt'), /MP4/i);
+  await assert.rejects(files.openVideo('/timelapse/missing.mp4'), (error) => {
+    assert.equal(error.status, 404);
+    return true;
+  });
+  const clip = await files.openVideo('/timelapse/video_2026-11-07_23-59-28.mp4');
+  assert.equal(clip.size, body.length);
+  const chunks = [];
+  const sink = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
+  await files.writeVideo(clip.path, sink, 4, 4);
+  assert.equal(Buffer.concat(chunks).toString(), '4567');
+  assert.deepEqual(downloaded, [['timelapse/video_2026-11-07_23-59-28.mp4', 4]]);
 });
 
 test('delete removes one confirmed file and refuses directories, missing files, and an active print', async () => {
@@ -462,4 +504,78 @@ test('usb select boxes delete only the chosen files and skip a file the printer 
   assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(UI.usbSelected)', context)), [
     '/bad.gcode.3mf',
   ]);
+  vm.runInContext(
+    `UI.usb.entries = [
+      { type: 'file', name: 'video_2026-11-07_23-59-28.mp4', path: '/timelapse/video_2026-11-07_23-59-28.mp4', size: 5300000 },
+      { type: 'file', name: 'a.gcode.3mf', path: '/a.gcode.3mf', label: 'Tệp A', size: 10 },
+    ];
+    renderUsb();`,
+    context,
+  );
+  const videos = node('#usb-list').innerHTML;
+  assert.match(videos, /data-usb-play="%2Ftimelapse%2Fvideo_2026-11-07_23-59-28\.mp4"/);
+  assert.match(videos, />Xem</);
+  assert.match(videos, /Bấm để xem/);
+  assert.doesNotMatch(videos, /data-usb-play="%2Fa\.gcode\.3mf"/);
+});
+
+test('usb video route requires login and plays an mp4 range inline', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'p2s-usb-video-'));
+  const config = await ConfigStore.open(directory);
+  const body = Buffer.from('01234567');
+  const storage = {
+    openVideo: async (filePath) => {
+      if (!String(filePath).toLowerCase().endsWith('.mp4'))
+        throw new AppError('Chỉ mở được tệp video MP4.', 400);
+      return { path: filePath, name: 'video_2026-11-07_23-59-28.mp4', size: body.length };
+    },
+    writeVideo: async (_filePath, destination, start, length) => {
+      destination.end(body.subarray(start, start + length));
+    },
+  };
+  const server = createApp({
+    config,
+    printer: {
+      events: [],
+      snapshot: () => ({ connection: 'unconfigured' }),
+      close: async () => {},
+      start: async () => {},
+      command: async () => {},
+    },
+    projects: { queue: { snapshot: () => ({}) }, list: async () => [] },
+    camera: {},
+    storage,
+    password: 'local-test-password-123',
+  }).listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal(
+      (await fetch(`${origin}/api/v1/printer/storage/video?path=%2Ftimelapse%2Fvideo.mp4`)).status,
+      401,
+    );
+    const login = await fetch(`${origin}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'local-test-password-123' }),
+    });
+    const headers = { origin, cookie: login.headers.get('set-cookie').split(';')[0] };
+    const denied = await fetch(`${origin}/api/v1/printer/storage/video?path=%2Fnotes.txt`, {
+      headers,
+    });
+    assert.equal(denied.status, 400);
+    const video = await fetch(
+      `${origin}/api/v1/printer/storage/video?path=%2Ftimelapse%2Fvideo.mp4`,
+      { headers: { ...headers, range: 'bytes=0-3' } },
+    );
+    assert.equal(video.status, 206);
+    assert.equal(video.headers.get('content-type'), 'video/mp4');
+    assert.equal(video.headers.get('cache-control'), 'private');
+    assert.equal(video.headers.get('accept-ranges'), 'bytes');
+    assert.match(video.headers.get('content-disposition'), /^inline;/);
+    assert.equal(await video.text(), '0123');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  }
 });

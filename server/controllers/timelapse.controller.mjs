@@ -23,6 +23,11 @@ export class TimelapseController {
       if (error && !res.destroyed) next(error);
     };
     if (req.query.download === '1') res.download(file, `timelapse-${req.params.id}.mp4`, done);
-    else res.sendFile(file, { headers: { 'Content-Type': 'video/mp4' } }, done);
+    else
+      res.sendFile(
+        file,
+        { headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'private' } },
+        done,
+      );
   };
 }

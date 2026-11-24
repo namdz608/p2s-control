@@ -511,11 +511,20 @@ function renderTimelapse() {
     (data.clips || [])
       .map((clip) => {
         if (!/^[a-f0-9]{32}$/.test(clip.id)) return '';
-        return `<article class="card timelapse-clip"><div class="timelapse-clip-head"><div class="timelapse-thumb">${icon('camera')}</div><span class="health-tag ${clip.status === 'failed' ? 'health-error' : clip.status === 'ready' ? 'health-ok' : 'health-warning'}">${escape(labels[clip.status] || clip.status)}</span></div><h3>${escape(clip.name)}</h3><p class="field-help">${new Date(clip.startedAt).toLocaleString('vi-VN')} · ${clip.mode === 'auto' ? 'Tự động' : 'Thủ công'}</p><p class="timelapse-meta">${number(clip.frames)} ảnh · ${clip.interval}s/ảnh · ${clip.fps} fps${clip.status === 'ready' ? ` · ${(clip.frames / clip.fps).toFixed(1)} giây video · ${timelapseBytes(clip.size)}` : ''}</p>${clip.status !== 'ready' ? `<p class="field-help">${escape(clip.message || '')}</p>` : ''}${clip.missedFrames ? `<p class="field-help">${number(clip.missedFrames)} lần chụp bị lỡ.</p>` : ''}<div class="timelapse-actions">${clip.status === 'ready' ? `<button class="button secondary compact" data-timelapse-action="play" data-id="${clip.id}">${icon('play')}Xem video</button><a class="button secondary compact" href="${API_BASE}/timelapses/${clip.id}/video?download=1">Tải MP4</a>` : ['failed', 'interrupted'].includes(clip.status) && clip.frames >= 2 ? `<button class="button secondary compact" data-timelapse-action="render" data-id="${clip.id}" ${data.busy || UI.timelapseBusy ? 'disabled' : ''}>Ghép lại</button>` : ''}<button class="text-button" data-timelapse-action="delete" data-id="${clip.id}" ${clip.id === active?.id || UI.timelapseBusy ? 'disabled' : ''}>Xóa</button></div></article>`;
+        return `<article class="card timelapse-clip"><div class="timelapse-clip-head"><div class="timelapse-thumb">${icon('camera')}</div><span class="health-tag ${clip.status === 'failed' ? 'health-error' : clip.status === 'ready' ? 'health-ok' : 'health-warning'}">${escape(labels[clip.status] || clip.status)}</span></div>${clip.status === 'ready' ? `<button type="button" class="timelapse-play" data-timelapse-action="play" data-id="${clip.id}">${escape(clip.name)}</button>` : `<h3>${escape(clip.name)}</h3>`}<p class="field-help">${new Date(clip.startedAt).toLocaleString('vi-VN')} · ${clip.mode === 'auto' ? 'Tự động' : 'Thủ công'}</p><p class="timelapse-meta">${number(clip.frames)} ảnh · ${clip.interval}s/ảnh · ${clip.fps} fps${clip.status === 'ready' ? ` · ${(clip.frames / clip.fps).toFixed(1)} giây video · ${timelapseBytes(clip.size)}` : ''}</p>${clip.status !== 'ready' ? `<p class="field-help">${escape(clip.message || '')}</p>` : ''}${clip.missedFrames ? `<p class="field-help">${number(clip.missedFrames)} lần chụp bị lỡ.</p>` : ''}<div class="timelapse-actions">${clip.status === 'ready' ? `<button class="button secondary compact" data-timelapse-action="play" data-id="${clip.id}">${icon('play')}Xem video</button><a class="button secondary compact" href="${API_BASE}/timelapses/${clip.id}/video?download=1">Tải MP4</a>` : ['failed', 'interrupted'].includes(clip.status) && clip.frames >= 2 ? `<button class="button secondary compact" data-timelapse-action="render" data-id="${clip.id}" ${data.busy || UI.timelapseBusy ? 'disabled' : ''}>Ghép lại</button>` : ''}<button class="text-button" data-timelapse-action="delete" data-id="${clip.id}" ${clip.id === active?.id || UI.timelapseBusy ? 'disabled' : ''}>Xóa</button></div></article>`;
       })
       .join('') ||
     '<section class="card timelapse-empty">Chưa có bản ghi. Timelapse đầu tiên sẽ xuất hiện tại đây.</section>';
   if ($('#timelapse-list').innerHTML !== html) $('#timelapse-list').innerHTML = html;
+}
+function openVideo(title, url) {
+  const video = $('#timelapse-player');
+  $('#timelapse-player-title').textContent = title || 'Video';
+  video.pause();
+  video.src = url;
+  video.load();
+  $('#timelapse-player-dialog').showModal();
+  video.play().catch(() => {});
 }
 function timelapseOptions() {
   return {
@@ -647,23 +656,30 @@ function renderUsb() {
             ? ` · ${new Date(entry.modifiedAt).toLocaleString('vi-VN')}`
             : '';
           const named = entry.label ? `${escape(entry.name)} · ` : '';
+          const videoFile = entry.type === 'file' && /\.mp4$/i.test(entry.name);
           const note =
             entry.type === 'file'
-              ? `${named}${usbBytes(entry.size)}${when}`
+              ? `${named}${usbBytes(entry.size)}${when}${videoFile ? ' · Bấm để xem' : ''}`
               : 'Không xóa được mục này';
           const selectableEntry = usbSelectable(entry);
           const locked = entry.type === 'file' && !selectableEntry;
           const checked = selectableEntry && chosen.has(entry.path);
+          const watch = videoFile
+            ? `<button type="button" class="text-button" data-usb-play="${encoded}">Xem</button>`
+            : '';
           const remove =
             entry.type === 'file'
               ? `<button type="button" class="text-button" data-usb-delete="${encoded}" ${locked || UI.usbBusy ? 'disabled' : ''}>Xóa</button>`
               : '';
-          const title = `<h3>${escape(entry.label || entry.name)}</h3><p class="field-help">${note}</p>`;
+          const heading = videoFile
+            ? `<button type="button" class="usb-play" data-usb-play="${encoded}">${escape(entry.label || entry.name)}</button>`
+            : `<h3>${escape(entry.label || entry.name)}</h3>`;
+          const title = `${heading}<p class="field-help">${note}</p>`;
           const body =
             entry.type === 'file'
-              ? `<label class="checkbox-label usb-select"><input type="checkbox" data-usb-select="${encoded}" aria-label="Chọn ${escape(entry.label || entry.name)}" ${checked ? 'checked' : ''} ${selectableEntry && !UI.usbBusy ? '' : 'disabled'} /><span class="usb-select-copy">${title}</span></label>`
+              ? `<label class="checkbox-label usb-select"><input type="checkbox" data-usb-select="${encoded}" aria-label="Chọn ${escape(entry.label || entry.name)}" ${checked ? 'checked' : ''} ${selectableEntry && !UI.usbBusy ? '' : 'disabled'} /></label><div class="usb-select-copy">${title}</div>`
               : `<div>${title}</div>`;
-          return `<article class="card usb-row">${body}${remove}</article>`;
+          return `<article class="card usb-row">${body}<span class="usb-row-actions">${watch}${remove}</span></article>`;
         })
         .join('')
     : '<section class="card usb-empty">Thư mục này không có tệp.</section>';
@@ -1362,25 +1378,41 @@ function openPrint(id) {
   $('#print-error').textContent = printReadiness();
   $('#print-form button[type=submit]').disabled = !canPrint();
   $('#print-project-name').textContent = project.name;
-  const preview = $('#print-preview');
-  preview.hidden = true;
-  preview.alt = `Xem trước ${project.name}`;
-  preview.onload = () => {
-    preview.hidden = false;
-  };
-  preview.onerror = () => {
-    preview.hidden = true;
-  };
-  preview.src = `${API_BASE}/projects/${project.id}/preview`;
   $('#print-plate').innerHTML = project.plates
     .map(
       (plate) =>
         `<option value="${plate.number}">Plate ${plate.number}${plate.seconds ? ` · ${duration(plate.seconds / 60)}` : ''}</option>`,
     )
     .join('');
+  if (project.plates[0]) $('#print-plate').value = String(project.plates[0].number);
   if (!(UI.printer.ams || []).length) $('#print-source').value = 'external';
-  renderMapping();
+  selectPrintPlate();
   $('#print-dialog').showModal();
+}
+function showPrintPreview(project, plateNumber) {
+  const preview = $('#print-preview');
+  const request = (preview.previewRequest = (preview.previewRequest || 0) + 1);
+  const src = `${API_BASE}/projects/${project.id}/preview?plate=${plateNumber}`;
+  preview.alt = `Xem trước ${project.name} · Plate ${plateNumber}`;
+  const reveal = () => {
+    if (preview.previewRequest === request) preview.hidden = false;
+  };
+  preview.onload = reveal;
+  preview.onerror = () => {
+    if (preview.previewRequest === request) preview.hidden = true;
+  };
+  if (preview.getAttribute?.('src') === src && preview.complete && preview.naturalWidth) {
+    reveal();
+    return;
+  }
+  preview.hidden = true;
+  preview.src = src;
+}
+function selectPrintPlate() {
+  renderMapping();
+  const plateNumber = Number($('#print-plate').value);
+  if (UI.selectedProject && Number.isInteger(plateNumber) && plateNumber > 0)
+    showPrintPreview(UI.selectedProject, plateNumber);
 }
 function materialColor(value) {
   return /^#[a-f0-9]{6}(?:[a-f0-9]{2})?$/i.test(value || '')
@@ -1757,9 +1789,7 @@ $('#timelapse-list').addEventListener(
     const { id, timelapseAction: type } = button.dataset;
     if (type === 'play') {
       const clip = UI.timelapse.clips.find((item) => item.id === id);
-      $('#timelapse-player-title').textContent = clip?.name || 'Video timelapse';
-      $('#timelapse-player').src = `${API_BASE}/timelapses/${id}/video`;
-      $('#timelapse-player-dialog').showModal();
+      openVideo(clip?.name || 'Video timelapse', `${API_BASE}/timelapses/${id}/video`);
       return;
     }
     if (
@@ -1785,6 +1815,10 @@ $('#timelapse-player-dialog').addEventListener('close', () => {
   video.pause();
   video.removeAttribute('src');
   video.load();
+});
+$('#timelapse-player').addEventListener('error', () => {
+  if (!$('#timelapse-player-dialog').open || !$('#timelapse-player').getAttribute('src')) return;
+  toast('Không phát được video. Thử bấm tệp lần nữa.', true);
 });
 $('#camera-close').addEventListener('click', cameraClose);
 $('#camera-image').addEventListener('error', () => {
@@ -1815,6 +1849,16 @@ $('#usb-delete-selected').addEventListener('click', action(deleteUsbSelected));
 $('#usb-list').addEventListener(
   'click',
   action(async (event) => {
+    const play = event.target.closest('[data-usb-play]');
+    if (play) {
+      const filePath = decodeURIComponent(play.dataset.usbPlay);
+      const entry = UI.usb.entries.find((item) => item.path === filePath);
+      openVideo(
+        entry?.label || entry?.name || 'Video USB',
+        `${API_BASE}/printer/storage/video?path=${encodeURIComponent(filePath)}`,
+      );
+      return;
+    }
     const open = event.target.closest('[data-usb-open]');
     if (open) {
       await loadUsb(decodeURIComponent(open.dataset.usbOpen));
@@ -1899,7 +1943,7 @@ $('#library-folders').addEventListener('drop', action(handleLibraryDrop));
 $('#projects-list').addEventListener('dragend', () => {
   $$('.drag-over').forEach((target) => target.classList.remove('drag-over'));
 });
-$('#print-plate').addEventListener('change', renderMapping);
+$('#print-plate').addEventListener('change', selectPrintPlate);
 $('#print-source').addEventListener('change', renderMapping);
 $('#print-mapping-mode').addEventListener('change', renderMapping);
 $('#print-mapping').addEventListener('change', updateMappingSummary);

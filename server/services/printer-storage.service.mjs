@@ -1,3 +1,4 @@
+import { Writable } from 'node:stream';
 import { FileType } from 'basic-ftp';
 import { AppError } from '../errors/app-error.mjs';
 import { withPrinterFtp } from './printer-file.service.mjs';
@@ -74,6 +75,11 @@ export function ftpPath(storagePath) {
   return storagePath === '/' ? '' : storagePath.slice(1);
 }
 
+export function isStorageVideo(filePath) {
+  const name = String(filePath || '').slice(String(filePath || '').lastIndexOf('/') + 1);
+  return /\.mp4$/i.test(name);
+}
+
 export function describeStorageEntry(directory, info) {
   const name = info?.name;
   if (typeof name !== 'string' || name.length === 0 || name === '.' || name === '..') return null;
@@ -140,6 +146,79 @@ export class PrinterStorageService {
       entries: entries.slice(0, visibleLimit),
       truncated: entries.length > visibleLimit,
     };
+  }
+
+  async openVideo(input) {
+    const filePath = resolveStoragePath(input);
+    if (!isStorageVideo(filePath)) throw new AppError('Chỉ mở được tệp video MP4.', 400);
+    const name = filePath.slice(filePath.lastIndexOf('/') + 1);
+    const parent = filePath.slice(0, filePath.lastIndexOf('/')) || '/';
+    const { entries } = await this.read(parent);
+    const entry = entries.find((item) => item.name === name);
+    if (!entry || entry.type !== 'file')
+      throw new AppError('Không thấy tệp video này trên USB.', 404);
+    if (!entry.size) throw new AppError('Tệp video trên USB đang trống.', 409);
+    return { path: filePath, name, size: entry.size };
+  }
+
+  async writeVideo(filePath, destination, start, length) {
+    const file = resolveStoragePath(filePath);
+    if (!isStorageVideo(file)) throw new AppError('Chỉ mở được tệp video MP4.', 400);
+    if (!Number.isInteger(start) || start < 0 || !Number.isInteger(length) || length < 1)
+      throw new AppError('Không đọc được đoạn video này.', 416);
+    let sent = 0;
+    let stop = false;
+    const sink = new Writable({
+      write: (chunk, _encoding, callback) => {
+        if (stop || destination.destroyed || destination.writableEnded) {
+          stop = true;
+          callback();
+          return;
+        }
+        const take = Math.min(chunk.length, length - sent);
+        if (take <= 0) {
+          stop = true;
+          callback();
+          return;
+        }
+        sent += take;
+        const slice = take === chunk.length ? chunk : chunk.subarray(0, take);
+        const finish = () => {
+          if (sent >= length) {
+            stop = true;
+            queueMicrotask(() => {
+              if (!sink.destroyed) sink.destroy();
+            });
+          }
+          callback();
+        };
+        if (destination.write(slice)) finish();
+        else destination.once('drain', finish);
+      },
+    });
+    sink.on('error', () => {});
+    const halt = () => {
+      stop = true;
+      if (!sink.destroyed) sink.destroy();
+    };
+    destination.on('close', halt);
+    try {
+      await this.useFtp(async (client) => {
+        try {
+          await client.downloadTo(sink, ftpPath(file), start);
+        } catch (error) {
+          if (!stop && sent < length) throw error;
+        }
+      });
+    } finally {
+      destination.off('close', halt);
+    }
+    if (destination.destroyed || destination.writableEnded) return;
+    if (sent < length) {
+      destination.destroy();
+      throw new AppError('Không đọc đủ video từ USB.', 502);
+    }
+    destination.end();
   }
 
   async remove(input, confirmed) {

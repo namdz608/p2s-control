@@ -26,7 +26,7 @@ function imageType(body) {
   return '';
 }
 
-export function readPlatePreview(file) {
+export function readPlatePreview(file, plateNumber) {
   return new Promise((resolve) => {
     yauzl.open(file, { lazyEntries: true, validateEntrySizes: true }, (error, zip) => {
       if (error) return resolve(null);
@@ -71,8 +71,12 @@ export function readPlatePreview(file) {
         });
       });
       zip.on('end', () => {
-        found.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
-        finish(found[0] ? { body: found[0].body, type: found[0].type } : null);
+        const matches = found.filter(
+          (item) =>
+            !Number.isInteger(plateNumber) || (item.rank[0] < 4 && item.rank[1] === plateNumber),
+        );
+        matches.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1]);
+        finish(matches[0] ? { body: matches[0].body, type: matches[0].type } : null);
       });
       zip.readEntry();
     });

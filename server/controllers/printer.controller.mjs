@@ -1,4 +1,30 @@
 import { AppError } from '../errors/app-error.mjs';
+
+function parseByteRange(header, size) {
+  if (header === undefined) return null;
+  const match = typeof header === 'string' ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
+  if (!match || (match[1] === '' && match[2] === '')) return { invalid: true };
+  let start;
+  let end;
+  if (match[1] === '') {
+    const suffix = Number(match[2]);
+    if (!Number.isInteger(suffix) || suffix <= 0) return { invalid: true };
+    start = Math.max(size - suffix, 0);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Number(match[2]);
+  }
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 0 ||
+    start >= size ||
+    end < start
+  )
+    return { invalid: true };
+  return { start, end: Math.min(end, size - 1) };
+}
 import { PrinterHealthService } from '../services/printer-health.service.mjs';
 import {
   attachStorageLabels,
@@ -51,6 +77,37 @@ export class PrinterController {
     const listing = await this.storage.list(path);
     const projects = this.projects?.list ? await this.projects.list() : [];
     res.json({ ...listing, entries: attachStorageLabels(listing.entries, projects) });
+  };
+
+  openStorageVideo = async (req, res, next) => {
+    try {
+      const file = await this.storage.openVideo(req.query.path);
+      const range = parseByteRange(req.headers.range, file.size);
+      const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_');
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'private');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      if (range?.invalid) {
+        res.status(416).setHeader('Content-Range', `bytes */${file.size}`).end();
+        return;
+      }
+      const start = range?.start ?? 0;
+      const end = range?.end ?? file.size - 1;
+      const length = end - start + 1;
+      if (range) {
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${file.size}`);
+      }
+      res.setHeader('Content-Length', String(length));
+      await this.storage.writeVideo(file.path, res, start, length);
+    } catch (error) {
+      if (res.headersSent) {
+        if (!res.writableEnded) res.destroy();
+        return;
+      }
+      next(error);
+    }
   };
 
   deleteStorage = async (req, res) => {

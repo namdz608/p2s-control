@@ -23,7 +23,7 @@ export class ProjectController {
   };
 
   preview = async (req, res) => {
-    const image = await this.projects.preview(req.params.id);
+    const image = await this.projects.preview(req.params.id, req.query.plate);
     res.setHeader('Content-Type', image.type);
     res.setHeader('Cache-Control', 'private, max-age=86400');
     res.setHeader('Content-Disposition', 'inline');

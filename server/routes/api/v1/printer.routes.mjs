@@ -9,6 +9,7 @@ export function printerRoutes(controller) {
   router.post('/commands', controller.command);
   router.post('/diagnostics', controller.diagnostics);
   router.get('/storage', controller.listStorage);
+  router.get('/storage/video', controller.openStorageVideo);
   router.delete('/storage', controller.deleteStorage);
   return router;
 }

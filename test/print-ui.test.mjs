@@ -296,6 +296,29 @@ test('manual print preserves the project filament positions when selecting more 
   assert.deepEqual(Array.from(mapping), [1, -1, -1, 3]);
 });
 
+test('print setup swaps the preview to the image of the selected plate', async () => {
+  const f = await ui();
+  f.node('#print-dialog').showModal = () => {};
+  f.node('#print-form').reset = () => {};
+  vm.runInContext(
+    `UI.projects = [{ id: 'abc', name: 'Goku-SSJ4-10cm-P2S', size: 10, addedAt: '2026-11-08', plates: [{ number: 1, seconds: 8700, filamentCount: 1, filaments: [] }, { number: 5, seconds: 780, filamentCount: 1, filaments: [] }] }]; UI.printer.ams = [{ id: '0', trays: [] }]; openPrint('abc');`,
+    f.context,
+  );
+  const preview = f.node('#print-preview');
+  assert.equal(preview.src, '/api/v1/projects/abc/preview?plate=1');
+  assert.match(preview.alt, /Plate 1/);
+  const staleLoad = preview.onload;
+  f.node('#print-plate').value = '5';
+  vm.runInContext('selectPrintPlate()', f.context);
+  assert.equal(preview.src, '/api/v1/projects/abc/preview?plate=5');
+  assert.match(preview.alt, /Plate 5/);
+  assert.equal(preview.hidden, true);
+  staleLoad();
+  assert.equal(preview.hidden, true);
+  preview.onload();
+  assert.equal(preview.hidden, false);
+});
+
 test('manual selection summary identifies an unconfigured A4 and asks to check the sliced material', async () => {
   const f = await ui();
   f.node('#print-source').value = 'ams';

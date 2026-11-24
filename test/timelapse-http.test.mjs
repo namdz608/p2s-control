@@ -90,6 +90,7 @@ test('timelapse HTTP protects recordings, validates input, supports video ranges
     });
     assert.equal(video.status, 206);
     assert.equal(video.headers.get('content-type'), 'video/mp4');
+    assert.equal(video.headers.get('cache-control'), 'private');
     assert.equal(await video.text(), 'test');
     const download = await request(`/api/v1/timelapses/${clip.id}/video?download=1`);
     assert.match(download.headers.get('content-disposition'), /^attachment/);

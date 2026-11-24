@@ -196,6 +196,53 @@ test('plate preview prefers the full PNG of the first plate and rejects a fake i
   }
 });
 
+test('preview returns the selected plate image and rejects a plate the file does not contain', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'p2s-plate-preview-'));
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const plateOne = Buffer.concat([png, Buffer.from('plate-1')]);
+  const plateFive = Buffer.concat([png, Buffer.from('plate-5')]);
+  const id = '01234567890123456789012345678901';
+  try {
+    const file = path.join(dir, 'plates.gcode.3mf');
+    const zip = new yazl.ZipFile();
+    zip.addBuffer(plateOne, 'Metadata/plate_1.png');
+    zip.addBuffer(plateFive, 'Metadata/plate_5.png');
+    zip.addBuffer(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), 'Metadata/plate_5_small.png');
+    zip.addBuffer(Buffer.concat([png, Buffer.from('thumb')]), 'Metadata/thumbnail.png');
+    const written = new Promise((resolve, reject) =>
+      zip.outputStream.pipe(createWriteStream(file)).on('finish', resolve).on('error', reject),
+    );
+    zip.end();
+    await written;
+    const selected = await readPlatePreview(file, 5);
+    assert.equal(selected.type, 'image/png');
+    assert.equal(selected.body.equals(plateFive), true);
+    assert.equal(await readPlatePreview(file, 2), null);
+    const service = new ProjectService({
+      async get(requested) {
+        assert.equal(requested, id);
+        return {
+          id,
+          plates: [{ number: 1 }, { number: 2 }, { number: 5 }],
+        };
+      },
+      file() {
+        return file;
+      },
+    });
+    assert.equal((await service.preview(id)).body.equals(plateOne), true);
+    assert.equal((await service.preview(id, '5')).body.equals(plateFive), true);
+    await assert.rejects(() => service.preview(id, '2'), /không có ảnh xem trước/);
+    await assert.rejects(() => service.preview(id, '9'), /Plate không có/);
+    await assert.rejects(() => service.preview(id, '5.png'), /Plate không có/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('3MF inspection uses whole project filament count, rejects fake archives and validates AMS mapping before printing', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'p2s-3mf-'));
   try {
