@@ -15,11 +15,14 @@ const doorSweep = [
   'G1 Y40 F2400',
   '',
 ].join('\n');
-const extruder = (slot = 0, { busy = false, moving = false, loaded = slot !== 255 } = {}) => ({
+const extruder = (
+  slot = 0,
+  { busy = false, moving = false, loaded = slot !== 255, direction = moving ? 1 : 0 } = {},
+) => ({
   device: {
     extruder: {
       state: 1 | (busy ? 1 << 19 : 0),
-      info: [{ id: 0, snow: slot, info: (loaded ? 2 : 0) | (moving ? 1 << 11 : 0) }],
+      info: [{ id: 0, snow: slot, info: (loaded ? 2 : 0) | (direction << 11) }],
     },
   },
 });
@@ -238,6 +241,7 @@ test('purge at the paused AMS pullback fault heats, pushes once and restores the
   assert.equal(status(), 'heating_purge');
   await report({ nozzle_target_temper: 220, nozzle_temper: 220 });
   assert.equal(status(), 'ready_purge');
+  await assert.rejects(action('retractPurge'), /máy đang bận/i);
   await assert.rejects(action('pushPurge', false), /xác nhận/);
   await action('pushPurge');
   assert.equal(sent[1].command, 'set_extrusion_length');
@@ -256,6 +260,47 @@ test('purge at the paused AMS pullback fault heats, pushes once and restores the
   assert.equal(sent[2].param, 'M104 S42\n');
   await report({ nozzle_target_temper: 42 });
   assert.equal(status(), 'completed');
+  assert.equal(printer.snapshot().status, 'PAUSE');
+});
+
+test('retracts 10 mm in a paused print and restores temperature after reverse motion stops', async (t) => {
+  const { printer, sent, report, action, status } = setup(t);
+  await report({
+    gcode_state: 'PAUSE',
+    gcode_file: 'plate_1.gcode',
+    task_id: 'paused-print',
+    nozzle_target_temper: 42,
+    ...extruder(2),
+  });
+  await printer.command({
+    type: 'filamentChange',
+    action: 'startPurge',
+    confirmed: true,
+    temperature: 230,
+  });
+  await assert.rejects(action('retractPurge'), /đủ nhiệt/);
+  await report({ nozzle_target_temper: 230, nozzle_temper: 230, ...extruder(255) });
+  await assert.rejects(action('retractPurge'), /kẹp sợi/);
+  await report(extruder(2));
+  await assert.rejects(action('retractPurge', false), /xác nhận/);
+  assert.equal(sent.length, 1);
+
+  await action('retractPurge');
+  assert.equal(status(), 'retracting_purge');
+  assert.equal(sent[1].command, 'set_extrusion_length');
+  assert.equal(sent[1].length, -10);
+  await assert.rejects(action('retractPurge'), /bước/);
+
+  await report(extruder(2, { moving: true }));
+  await report(extruder(2));
+  assert.equal(status(), 'retracting_purge');
+  await report(extruder(2, { direction: 2 }));
+  await report(extruder(2));
+  assert.equal(status(), 'restoring_purge');
+  assert.equal(sent[2].param, 'M104 S42\n');
+  await report({ nozzle_target_temper: 42 });
+  assert.equal(status(), 'completed');
+  assert.match(printer.snapshot().filamentChange.message, /lùi sợi/);
   assert.equal(printer.snapshot().status, 'PAUSE');
 });
 

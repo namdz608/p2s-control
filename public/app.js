@@ -903,7 +903,7 @@ function renderFilamentChange() {
       : clear
         ? 'Nung đầu phun cho nhựa cũ mềm, rồi đưa đầu phun ra cửa và di chuyển quanh đó. Bàn in phải trống.'
         : purge
-          ? 'Nung đầu phun để đùn một nhịp. Kiểm tra đầu phun ở máng xả qua camera.'
+          ? 'Nung đầu phun để đùn hoặc lùi sợi 10 mm. Kiểm tra đầu phun ở máng xả qua camera.'
           : 'Chọn cuộn mới để bắt đầu.';
   const statusMessage = !change.active && startBlocker ? startBlocker : message;
   const progress = change.status !== 'idle' || startBlocker ? statusMessage : '';
@@ -939,8 +939,15 @@ function renderFilamentChange() {
   const cancel = $('#filament-cancel');
   const extra = $('#filament-extra');
   const button = $('#filament-next');
+  const extraStep =
+    change.status === 'ready_purge' && change.loaded && !change.pausedPullback
+      ? ['retractPurge', 'Lùi sợi 10 mm']
+      : change.status === 'verify_new'
+        ? ['heatMore', 'Đẩy thêm']
+        : null;
   cancel.hidden = !filamentCancellable.has(change.status);
-  extra.hidden = change.status !== 'verify_new';
+  extra.hidden = !extraStep;
+  if (extraStep) [extra.dataset.filamentAction, extra.textContent] = extraStep;
   button.hidden = !next;
   if (next) {
     [button.dataset.filamentAction, button.textContent] = next;
@@ -1644,13 +1651,14 @@ $('#filament-clear-form').addEventListener('submit', async (event) => {
 $('#filament-actions').addEventListener('click', async (event) => {
   const name = event.target.closest('[data-filament-action]')?.dataset.filamentAction;
   const id = UI.printer.filamentChange?.id;
-  if (name === 'pushOld' || name === 'pushNew' || name === 'pushPurge') {
+  const retract = name === 'retractPurge';
+  if (retract || name === 'pushOld' || name === 'pushNew' || name === 'pushPurge') {
     const confirmed = await confirmAction(
       'Kiểm tra vị trí đầu phun',
-      name === 'pushPurge'
+      retract || name === 'pushPurge'
         ? 'Xác nhận qua camera đầu phun đang ở trên máng xả và không có vật cản.'
         : 'Xác nhận đầu phun đang ở trên máng xả và không có vật cản.',
-      'Xác nhận và đẩy 10 mm',
+      retract ? 'Xác nhận và lùi 10 mm' : 'Xác nhận và đẩy 10 mm',
     );
     if (!confirmed) return;
   }

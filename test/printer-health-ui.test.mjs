@@ -145,6 +145,28 @@ test('purge heating stays clickable when a paused printer reports an AMS error',
   assert.equal(f.node('#filament-purge-start').disabled, true);
 });
 
+test('purge offers the retract button once the nozzle is ready and gripping filament', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.status = 'PAUSE'; UI.printer.filamentChange = {status:'heating_purge',mode:'purge',active:true,loaded:true}; renderFilamentChange();`,
+    f.context,
+  );
+  const retract = f.node('#filament-extra');
+  assert.equal(retract.hidden, true);
+
+  vm.runInContext(
+    `UI.printer.filamentChange.status = 'ready_purge'; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(retract.hidden, false);
+  assert.equal(retract.disabled, false);
+  assert.equal(retract.textContent, 'Lùi sợi 10 mm');
+  assert.equal(retract.dataset.filamentAction, 'retractPurge');
+
+  vm.runInContext(`UI.printer.filamentChange.loaded = false; renderFilamentChange();`, f.context);
+  assert.equal(retract.hidden, true);
+});
+
 test('stuck-nozzle control heats before moving and stays locked while printing', async () => {
   const f = await fixture();
   const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');

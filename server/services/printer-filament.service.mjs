@@ -5,12 +5,13 @@ import { makeCommand } from './printer-command.service.mjs';
 
 const resting = new Set(['IDLE', 'FINISH', 'FAILED']);
 const inactive = new Set(['idle', 'completed', 'cancelled']);
+const purgeMotion = new Set(['pushing_purge', 'retracting_purge']);
 const motion = new Set([
   'pushing_old',
   'unloading',
   'loading',
   'pushing_new',
-  'pushing_purge',
+  ...purgeMotion,
   'moving_clear',
 ]);
 const telemetryFields = ['ams_status', 'extruder_state', 'extruder_info'];
@@ -36,6 +37,7 @@ const purgeTimeouts = {
   awaiting_purge_heat: 15000,
   ready_purge: 60000,
   pushing_purge: 15000,
+  retracting_purge: 15000,
   restoring_purge: 20000,
   awaiting_clear_heat: 15000,
   heating_clear: 240000,
@@ -75,8 +77,9 @@ const messages = {
   pushing_new: 'Đang chờ máy xác nhận đã đẩy thêm sợi mới.',
   awaiting_purge_heat: 'Đã gửi yêu cầu. Đang chờ P2S xác nhận nhiệt độ mục tiêu.',
   heating_purge: 'P2S đã nhận nhiệt độ mục tiêu. Đang nung đầu phun.',
-  ready_purge: 'Đã đủ nhiệt. Xác nhận qua camera đầu phun ở trên máng xả trước khi đùn.',
+  ready_purge: 'Đã đủ nhiệt. Kiểm tra đầu phun ở trên máng xả qua camera trước khi thao tác.',
   pushing_purge: 'Đang chờ máy báo kết thúc nhịp đùn.',
+  retracting_purge: 'Đang chờ máy báo kết thúc nhịp lùi sợi.',
   restoring_purge: 'Đang trả nhiệt độ mục tiêu về mức trước khi nung.',
   awaiting_clear_heat: 'Đã gửi yêu cầu nung. Đang chờ P2S xác nhận nhiệt độ.',
   heating_clear: 'Đang nung đầu phun. Đủ nhiệt sẽ đưa đầu phun ra cửa và di chuyển quanh đó.',
@@ -170,14 +173,19 @@ export class PrinterFilamentService {
     if (this.state.mode === 'purge') {
       if (this.state.status !== 'restoring_purge') {
         try {
-          const { state } = this.checkIdle({ purge: true, faults: false });
-          const pendingPush = this.state.status === 'pushing_purge';
+          const retracting = this.state.status === 'retracting_purge';
+          const { state } = this.checkIdle({
+            purge: true,
+            faults: false,
+            allowStalledPullback: !retracting,
+          });
+          const pendingMotion = purgeMotion.has(this.state.status);
           const pendingHeat = this.state.status === 'awaiting_purge_heat';
           await this.restorePurge(
             state,
-            pendingPush ? 'uncertain' : 'cancelled',
-            pendingPush
-              ? 'Hết thời gian chờ máy xác nhận nhịp đùn. Kiểm tra P2S trước khi thử lại.'
+            pendingMotion ? 'uncertain' : 'cancelled',
+            pendingMotion
+              ? `Hết thời gian chờ máy xác nhận nhịp ${retracting ? 'lùi sợi' : 'đùn'}. Kiểm tra P2S trước khi thử lại.`
               : pendingHeat
                 ? 'P2S chưa xác nhận nhiệt độ yêu cầu. Kiểm tra trạng thái máy trước khi thử lại.'
                 : 'Hết thời gian chờ. Đã kết thúc thao tác đùn.',
@@ -217,7 +225,7 @@ export class PrinterFilamentService {
     );
   }
 
-  checkIdle({ faults = true, purge = false, clear = false } = {}) {
+  checkIdle({ faults = true, purge = false, clear = false, allowStalledPullback = true } = {}) {
     this.printer.assertReady();
     const state = this.printer.snapshot();
     const raw = this.printer.raw.print ?? {};
@@ -234,7 +242,7 @@ export class PrinterFilamentService {
         'Cần dữ liệu mới về đầu đùn và AMS từ P2S. Chạy kiểm tra kết nối rồi thử lại.',
         409,
       );
-    const stalled = purge && pausedPullback(raw);
+    const stalled = purge && allowStalledPullback && pausedPullback(raw);
     const pausedClear = clear && state.status === 'PAUSE';
     if (
       !(resting.has(state.status) || (purge && state.status === 'PAUSE') || pausedClear) ||
@@ -554,12 +562,15 @@ export class PrinterFilamentService {
             'Trạng thái bản in đã thay đổi. P2S đang quản lý nhiệt độ mục tiêu.',
           );
         }
-      } else if (input.action === 'pushPurge') {
+      } else if (input.action === 'pushPurge' || input.action === 'retractPurge') {
         if (status === 'awaiting_purge_heat' || status === 'heating_purge')
           throw new AppError('Đầu phun chưa đủ nhiệt.', 409);
         if (status !== 'ready_purge') throw invalid();
-        const { state } = this.checkIdle({ purge: true });
+        const retract = input.action === 'retractPurge';
+        const { state, extruder } = this.checkIdle({ purge: true, allowStalledPullback: !retract });
         if (!this.samePurgeContext(state)) throw invalid();
+        if (retract && !extruder.loaded)
+          throw new AppError('Đầu đùn phải còn kẹp sợi trước khi lùi.', 409);
         if (
           !state.fieldFresh.nozzle_temper ||
           !state.fieldFresh.nozzle_target_temper ||
@@ -567,7 +578,10 @@ export class PrinterFilamentService {
           !purgeAtTemperature(state.nozzle.current, this.state.temperature)
         )
           throw new AppError('Đầu phun chưa đủ nhiệt hoặc nhiệt độ đã thay đổi.', 409);
-        await this.send('pushing_purge', 'set_extrusion_length', { extruder_index: 0, length: 10 });
+        await this.send(retract ? 'retracting_purge' : 'pushing_purge', 'set_extrusion_length', {
+          extruder_index: 0,
+          length: retract ? -10 : 10,
+        });
       } else {
         throw invalid();
       }
@@ -609,14 +623,19 @@ export class PrinterFilamentService {
   async observePurge(delta, snapshot, extruder, rejected, newExtruder) {
     const status = this.state.status;
     const raw = this.printer.raw.print;
+    const retracting = status === 'retracting_purge';
     if (delta.nozzle_target_temper === this.state.temperature) this.purgeHeatSeen = true;
-    if (rejected && status === 'pushing_purge' && this.samePurgeContext(snapshot)) {
+    if (rejected && purgeMotion.has(status) && this.samePurgeContext(snapshot)) {
       try {
-        const { state } = this.checkIdle({ purge: true, faults: false });
+        const { state } = this.checkIdle({
+          purge: true,
+          faults: false,
+          allowStalledPullback: !retracting,
+        });
         await this.restorePurge(
           state,
           'cancelled',
-          'P2S từ chối đùn. Kiểm tra thông báo trên máy.',
+          `P2S từ chối ${retracting ? 'lùi sợi' : 'đùn'}. Kiểm tra thông báo trên máy.`,
         );
         return;
       } catch {
@@ -627,7 +646,7 @@ export class PrinterFilamentService {
     if (
       rejected ||
       !this.samePurgeContext(snapshot) ||
-      (status !== 'restoring_purge' && purgeFaults(snapshot, pausedPullback(raw)))
+      (status !== 'restoring_purge' && purgeFaults(snapshot, !retracting && pausedPullback(raw)))
     ) {
       this.interrupt(
         'P2S từ chối lệnh hoặc trạng thái máy đã thay đổi. Kiểm tra nhiệt độ và camera.',
@@ -652,18 +671,22 @@ export class PrinterFilamentService {
       } else if (status === 'heating_purge') {
         this.interrupt('P2S đã thay đổi nhiệt độ mục tiêu. Kiểm tra trạng thái máy trước khi đùn.');
       }
-    } else if (status === 'pushing_purge' && newExtruder && extruder) {
-      if (extruder.direction === 1) this.observedAction = true;
+    } else if (purgeMotion.has(status) && newExtruder && extruder) {
+      if (extruder.direction === (retracting ? 2 : 1)) this.observedAction = true;
       if ((this.observedAction || this.accepted) && extruder.direction === 0) {
         try {
-          const { state } = this.checkIdle({ purge: true });
+          const { state } = this.checkIdle({ purge: true, allowStalledPullback: !retracting });
           await this.restorePurge(
             state,
             'completed',
-            'Máy đã phản hồi lệnh đùn. Kiểm tra nhựa đã ra qua camera.',
+            retracting
+              ? 'Máy đã phản hồi lệnh lùi sợi 10 mm.'
+              : 'Máy đã phản hồi lệnh đùn. Kiểm tra nhựa đã ra qua camera.',
           );
         } catch {
-          this.interrupt('Máy đã báo xong nhịp đùn. Chưa xác nhận được khôi phục nhiệt độ.');
+          this.interrupt(
+            `Máy đã báo xong nhịp ${retracting ? 'lùi sợi' : 'đùn'}. Chưa xác nhận được khôi phục nhiệt độ.`,
+          );
         }
       }
     }
