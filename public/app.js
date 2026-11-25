@@ -932,7 +932,7 @@ function renderFilamentChange() {
   $('#filament-purge-form').hidden = change.active || !purge;
   $('#filament-clear-form').hidden = change.active || !clear;
   $('#filament-purge-camera').hidden = !(purge || clear);
-  $('#filament-start').disabled = UI.filamentSubmitting || Boolean(filamentStartBlocker());
+  $('#filament-start').disabled = UI.filamentSubmitting;
   $('#filament-purge-start').disabled =
     UI.filamentSubmitting || Boolean(filamentStartBlocker(true));
   $('#filament-clear-start').disabled =
@@ -947,8 +947,8 @@ function renderFilamentChange() {
     [button.dataset.filamentAction, button.textContent] = next;
   }
   $('#filament-actions').hidden = cancel.hidden && extra.hidden && button.hidden;
-  for (const control of [cancel, extra, button])
-    control.disabled = UI.filamentSubmitting || !p.fresh;
+  cancel.disabled = extra.disabled = UI.filamentSubmitting || !p.fresh;
+  button.disabled = UI.filamentSubmitting || (!p.fresh && change.status !== 'ready_old');
 }
 
 function availableFilamentTrays() {

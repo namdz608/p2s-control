@@ -80,28 +80,44 @@ test('active calibration disables new print submission and explains the reason',
   assert.equal(f.node('#system-check').disabled, true);
 });
 
-test('filament dialog explains why heating is disabled during a live print and re-enables when idle', async () => {
+test('old-filament heating stays clickable while the dialog reports printer status', async () => {
   const f = await fixture();
   vm.runInContext(
     `UI.printer.status = 'RUNNING'; UI.printer.nozzle = { current: 218 }; UI.printer.filamentChange = {status:'idle',active:false,message:'Chọn cuộn mới để bắt đầu.'}; renderFilamentChange();`,
     f.context,
   );
-  assert.equal(f.node('#filament-start').disabled, true);
+  assert.equal(f.node('#filament-start').disabled, false);
   assert.match(f.node('#filament-status').textContent, /Máy đang in.*Chờ bản in kết thúc/);
   assert.match(f.node('#filament-summary').textContent, /Máy đang in/);
 
   vm.runInContext(`UI.printer.status = 'FINISH'; renderFilamentChange();`, f.context);
   assert.equal(f.node('#filament-start').disabled, false);
   assert.match(f.node('#filament-status').textContent, /Chọn cuộn mới để bắt đầu/);
+
+  vm.runInContext(`UI.printer.fresh = false; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-start').disabled, false);
+  assert.match(f.node('#filament-status').textContent, /Chờ dữ liệu mới/);
 });
 
-test('paused AMS pullback exposes the purge controls while the spool-change form stays locked', async () => {
+test('old-filament extrusion stays clickable with a stale report and blocks duplicate submissions', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.fresh = false; UI.printer.filamentChange = {status:'ready_old',active:true,message:'Đầu phun đã đủ nhiệt.'}; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-next').dataset.filamentAction, 'pushOld');
+  assert.equal(f.node('#filament-next').disabled, false);
+
+  vm.runInContext(`UI.filamentSubmitting = true; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-next').disabled, true);
+});
+
+test('paused AMS pullback exposes the purge controls', async () => {
   const f = await fixture();
   vm.runInContext(
     `UI.printer.status = 'PAUSE'; UI.printer.printError = 0x07008004; UI.printer.filamentChange = {status:'idle',active:false,pausedPullback:true}; renderFilamentChange();`,
     f.context,
   );
-  assert.equal(f.node('#filament-start').disabled, true);
   vm.runInContext(`UI.filamentMode = 'purge'; renderFilamentChange();`, f.context);
   assert.equal(f.node('#filament-form').hidden, true);
   assert.equal(f.node('#filament-purge-form').hidden, false);
@@ -137,7 +153,6 @@ test('stuck-nozzle control heats before moving and stays locked while printing',
 
   vm.runInContext(`UI.printer.status = 'PAUSE'; renderFilamentChange();`, f.context);
   assert.equal(f.node('#filament-clear-start').disabled, false);
-  assert.equal(f.node('#filament-start').disabled, true);
   assert.match(f.node('#filament-status').textContent, /cửa/);
   assert.doesNotMatch(f.node('#filament-status').textContent, /tạm dừng/);
 
