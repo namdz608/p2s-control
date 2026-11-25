@@ -13,10 +13,17 @@ async function fixture() {
         hidden: false,
         disabled: false,
         dataset: {},
+        listeners: {},
         checked: true,
         classList: { toggle() {} },
-        addEventListener() {},
+        addEventListener(type, listener) {
+          this.listeners[type] = listener;
+        },
         setAttribute() {},
+        removeAttribute() {},
+        showModal() {
+          this.open = true;
+        },
       });
     return nodes.get(selector);
   };
@@ -31,7 +38,7 @@ async function fixture() {
     `UI.settings = { configured: true }; UI.printer = {fresh:true,status:'IDLE',printError:0,maintenance:{active:false}};`,
     context,
   );
-  return { node, context };
+  return { node, context, source };
 }
 
 test('health page renders specific faults safely and labels stale reports explicitly', async () => {
@@ -145,13 +152,48 @@ test('purge heating stays clickable when a paused printer reports an AMS error',
   assert.equal(f.node('#filament-purge-start').disabled, true);
 });
 
-test('purge offers the retract button once the nozzle is ready and gripping filament', async () => {
+test('Materials opens a dedicated retract dialog and submits its heating request', async () => {
   const f = await fixture();
+  const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<button id="filament-retract-open"[^>]*>\s*Lùi sợi 10 mm\s*<\/button>/);
   vm.runInContext(
-    `UI.printer.status = 'PAUSE'; UI.printer.filamentChange = {status:'heating_purge',mode:'purge',active:true,loaded:true}; renderFilamentChange();`,
+    f.source.slice(
+      f.source.indexOf("$('#filament-open').addEventListener"),
+      f.source.indexOf("$('#filament-camera-refresh').addEventListener"),
+    ),
     f.context,
   );
-  const retract = f.node('#filament-extra');
+  vm.runInContext(
+    f.source.slice(
+      f.source.indexOf("$('#filament-purge-form').addEventListener"),
+      f.source.indexOf("$('#filament-clear-form').addEventListener"),
+    ),
+    f.context,
+  );
+  vm.runInContext(
+    `UI.printer.status = 'PAUSE'; UI.printer.filamentChange = {status:'idle', active:false, loaded:true};
+     calls=[]; sendFilamentAction=async(...args)=>calls.push(args); renderFilamentChange();`,
+    f.context,
+  );
+  f.node('#filament-retract-open').listeners.click();
+  assert.equal(f.node('#filament-dialog').open, true);
+  assert.equal(f.node('#filament-title').textContent, 'Lùi sợi 10 mm');
+  assert.equal(f.node('#filament-purge-form').hidden, false);
+  assert.equal(f.node('#filament-next').hidden, true);
+  f.node('#filament-purge-temp').value = '230';
+  await f.node('#filament-purge-form').listeners.submit({ preventDefault() {} });
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(calls)', f.context)), [
+    ['startRetract', { temperature: 230 }],
+  ]);
+});
+
+test('the dedicated retract workflow offers reverse motion after heating', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.status = 'PAUSE'; UI.printer.filamentChange = {status:'heating_purge',mode:'retract',active:true,loaded:true}; renderFilamentChange();`,
+    f.context,
+  );
+  const retract = f.node('#filament-next');
   assert.equal(retract.hidden, true);
 
   vm.runInContext(
@@ -165,6 +207,13 @@ test('purge offers the retract button once the nozzle is ready and gripping fila
 
   vm.runInContext(`UI.printer.filamentChange.loaded = false; renderFilamentChange();`, f.context);
   assert.equal(retract.hidden, true);
+
+  vm.runInContext(
+    `UI.printer.filamentChange.mode = 'purge'; UI.printer.filamentChange.loaded = true; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(retract.dataset.filamentAction, 'pushPurge');
+  assert.equal(f.node('#filament-extra').hidden, true);
 });
 
 test('stuck-nozzle control heats before moving and stays locked while printing', async () => {

@@ -272,16 +272,22 @@ test('retracts 10 mm in a paused print and restores temperature after reverse mo
     nozzle_target_temper: 42,
     ...extruder(2),
   });
-  await printer.command({
+  const startRetract = {
     type: 'filamentChange',
-    action: 'startPurge',
+    action: 'startRetract',
     confirmed: true,
     temperature: 230,
-  });
+  };
+  await report(extruder(255));
+  await assert.rejects(printer.command(startRetract), /kẹp sợi/);
+  assert.equal(sent.length, 0);
+  await report(extruder(2));
+  assert.equal((await printer.command(startRetract)).mode, 'retract');
   await assert.rejects(action('retractPurge'), /đủ nhiệt/);
   await report({ nozzle_target_temper: 230, nozzle_temper: 230, ...extruder(255) });
   await assert.rejects(action('retractPurge'), /kẹp sợi/);
   await report(extruder(2));
+  await assert.rejects(action('pushPurge'), /bước/);
   await assert.rejects(action('retractPurge', false), /xác nhận/);
   assert.equal(sent.length, 1);
 
