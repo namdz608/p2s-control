@@ -933,8 +933,7 @@ function renderFilamentChange() {
   $('#filament-clear-form').hidden = change.active || !clear;
   $('#filament-purge-camera').hidden = !(purge || clear);
   $('#filament-start').disabled = UI.filamentSubmitting;
-  $('#filament-purge-start').disabled =
-    UI.filamentSubmitting || Boolean(filamentStartBlocker(true));
+  $('#filament-purge-start').disabled = UI.filamentSubmitting;
   $('#filament-clear-start').disabled =
     UI.filamentSubmitting || Boolean(filamentStartBlocker(false, true));
   const cancel = $('#filament-cancel');

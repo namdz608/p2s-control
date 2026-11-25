@@ -132,6 +132,19 @@ test('paused AMS pullback exposes the purge controls', async () => {
   assert.equal(f.node('#filament-extra').hidden, true);
 });
 
+test('purge heating stays clickable when a paused printer reports an AMS error', async () => {
+  const f = await fixture();
+  vm.runInContext(
+    `UI.printer.status = 'PAUSE'; UI.printer.printError = 0x07008006; UI.printer.filamentChange = {status:'idle',active:false,pausedPullback:false}; UI.filamentMode = 'purge'; renderFilamentChange();`,
+    f.context,
+  );
+  assert.equal(f.node('#filament-purge-form').hidden, false);
+  assert.equal(f.node('#filament-purge-start').disabled, false);
+
+  vm.runInContext(`UI.filamentSubmitting = true; renderFilamentChange();`, f.context);
+  assert.equal(f.node('#filament-purge-start').disabled, true);
+});
+
 test('stuck-nozzle control heats before moving and stays locked while printing', async () => {
   const f = await fixture();
   const html = await readFile(new URL('../server/views/index.html', import.meta.url), 'utf8');
