@@ -171,6 +171,14 @@ test('file library has one action to start every file and a visible readiness ex
   assert.match(html, /id="queue-status"/);
 });
 
+test('each print file card offers a download link to the project file endpoint', async () => {
+  const f = await ui();
+  await vm.runInContext('loadProjects()', f.context);
+  const html = f.node('#projects-list').innerHTML;
+  assert.match(html, /href="\/api\/v1\/projects\/a\/file"/);
+  assert.match(html, />Tải xuống</);
+});
+
 async function grayPrintSetup({
   name = '04-Than-chan-XAM-AMS4',
   colors = ['#FFFFFF', '#000000', '#E8C4B0', '#808080'],

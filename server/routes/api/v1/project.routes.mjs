@@ -11,6 +11,7 @@ export function projectRoutes(controller, upload) {
   router.post('/', upload, controller.store);
   router.patch('/:id/folder', controller.move);
   router.get('/:id/preview', controller.preview);
+  router.get('/:id/file', controller.download);
   router.delete('/:id', controller.destroy);
   router.post('/:id/start', controller.start);
   return router;

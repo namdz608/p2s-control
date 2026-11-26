@@ -63,6 +63,14 @@ export class ProjectService {
     return image;
   }
 
+  async download(id) {
+    const project = await this.model.get(id);
+    return {
+      path: this.model.file(project.id, 'gcode.3mf'),
+      name: `${project.name || project.id}.gcode.3mf`,
+    };
+  }
+
   async validateFolder(folderId) {
     if (folderId === null || folderId === undefined || folderId === '') return null;
     await this.folders.get(folderId);

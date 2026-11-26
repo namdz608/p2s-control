@@ -29,6 +29,7 @@ Base URL: `/api/v1`. Các phản hồi JSON giữ định dạng hiện có; cam
 | Thư mục | GET | `/api/v1/projects/folders` | `200`, mảng `{ id, name }` |
 | Thư mục | POST | `/api/v1/projects/folders` | `201`, thư mục mới `{ id, name }` |
 | Tệp in | PATCH | `/api/v1/projects/:id/folder` | `200`, metadata sau khi chuyển thư mục |
+| Tệp in | GET | `/api/v1/projects/:id/file` | `200`, tệp `.gcode.3mf` dạng attachment để tải về máy |
 | Tệp in | DELETE | `/api/v1/projects/:id` | `200 { "ok": true, "usb": "removed" \| "absent" \| "unconfigured" \| "skipped" }`, xóa thư viện và gỡ `/{id}.gcode.3mf` trên USB nếu có |
 | Tệp in | POST | `/api/v1/projects/:id/start` | `202 { "ok": true, "message": "..." }` |
 | Hàng đợi | GET | `/api/v1/projects/queue` | `200`, trạng thái và danh sách lượt in |
@@ -119,6 +120,8 @@ Khi hiệu chuẩn đang hoạt động, in riêng/hàng đợi/đổi cấu hì
 `GET /api/v1/projects/folders` trả danh sách thư mục một cấp, sắp xếp theo tên. `POST /api/v1/projects/folders` nhận `{ "name": "Batman" }`; tên có 1–80 ký tự sau khi bỏ khoảng trắng hai đầu, không chứa dấu `/`, `\`, ký tự điều khiển hoặc chỉ là `.`/`..`. Tên trùng không phân biệt hoa/thường trả `409`; dữ liệu sai trả `400`.
 
 `PATCH /api/v1/projects/:id/folder` nhận `{ "folderId": "<id-thu-muc>" }` hoặc `{ "folderId": null }` để chuyển về gốc. Thư mục hoặc tệp không tồn tại trả `404`. Chuyển thư mục giữ nguyên ID, metadata in và nội dung tệp. Cả tạo thư mục, chuyển tệp và upload đều yêu cầu đăng nhập và kiểm tra cùng origin. Danh sách thư mục nằm trong `project-folders/` của volume dữ liệu; phân loại nằm trong metadata mỗi tệp, được giữ qua khởi động lại. Hàng đợi in tất cả vẫn lấy toàn bộ thư viện, gồm các thư mục.
+
+`GET /api/v1/projects/:id/file` trả tệp `.gcode.3mf` gốc đã lưu trên server với `Content-Disposition: attachment` và tên theo metadata dự án. Chỉ người đã đăng nhập mới tải được; ID không tồn tại hoặc không hợp lệ trả `404`.
 
 `POST /api/v1/projects/:id/start`
 

@@ -30,6 +30,13 @@ export class ProjectController {
     res.send(image.body);
   };
 
+  download = async (req, res, next) => {
+    const file = await this.projects.download(req.params.id);
+    res.download(file.path, file.name, (error) => {
+      if (error && !res.destroyed) next(error);
+    });
+  };
+
   store = async (req, res) => {
     if (!req.file) throw new AppError('Chưa chọn tệp in.');
     try {
