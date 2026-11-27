@@ -215,6 +215,7 @@ function renderState(events = []) {
     : fresh
       ? 'Chọn một tệp để bắt đầu tác vụ mới.'
       : 'Kết nối máy in để bắt đầu theo dõi.';
+  renderJobPreview();
   $('#job-status').textContent = statusLabels[p.status] || p.status || 'Chưa có dữ liệu';
   $('#job-progress').innerHTML = `${number(p.progress)}<small>%</small>`;
   $('#job-progress-bar').style.width = `${Math.max(0, Math.min(100, p.progress || 0))}%`;
@@ -1145,6 +1146,7 @@ async function loadProjects() {
   UI.folders = folders;
   if (UI.folderId && !folders.some((folder) => folder.id === UI.folderId)) UI.folderId = '';
   renderLibrary();
+  renderJobPreview();
 }
 function folderOptions(selected = '') {
   return [{ id: '', name: 'Thư viện gốc' }, ...UI.folders]
@@ -1283,6 +1285,141 @@ function renderPrintControls() {
         `<li><span>${escape(item.name)} · Plate ${item.plate}</span><strong>${escape(labels[item.status] || item.status)}</strong></li>`,
     )
     .join('');
+  renderQueuePreview();
+}
+function printingNow() {
+  return ['RUNNING', 'PAUSE', 'PREPARE', 'SLICING'].includes(UI.printer?.status);
+}
+function plateNumberFromFile(file) {
+  const match = /plate_([1-9]\d{0,2})\.gcode/i.exec(file || '');
+  return match ? Number(match[1]) : null;
+}
+function projectForActiveFile(file) {
+  const match = /([a-f0-9]{32})\.gcode\.3mf/i.exec(file || '');
+  if (!match) return null;
+  return UI.projects.find((project) => project.id.toLowerCase() === match[1].toLowerCase()) || null;
+}
+function activeQueueItem() {
+  const items = UI.queue?.items || [];
+  return (
+    items.find((item) => item.status === 'printing') ||
+    items.find((item) => item.status === 'awaiting_start' || item.status === 'submitting') ||
+    null
+  );
+}
+function plateOnProject(project, plate) {
+  return project?.plates?.some((item) => item.number === plate) ? plate : null;
+}
+function currentPrintTarget() {
+  const printer = UI.printer || {};
+  const task = typeof printer.task === 'string' ? printer.task.trim() : '';
+  const named = UI.projects.filter((project) => project.name.trim() === task);
+  const byName = named.length === 1 ? named[0] : null;
+  const byFile = projectForActiveFile(printer.activeFile);
+  const queueItem = activeQueueItem();
+  const byQueue = queueItem
+    ? UI.projects.find((project) => project.id === queueItem.id) || null
+    : null;
+  const project = byFile || byName || byQueue;
+  if (!project) return null;
+  const reported = plateOnProject(project, plateNumberFromFile(printer.activeFile));
+  const queued =
+    queueItem && queueItem.id === project.id ? plateOnProject(project, queueItem.plate) : null;
+  const only = project.plates?.length === 1 ? project.plates[0].number : null;
+  const plate = reported || queued || only;
+  if (!Number.isInteger(plate) || plate < 1) return null;
+  return { project, plate };
+}
+function bindPlatePreview(image, project, plate) {
+  const request = (image.previewRequest = (image.previewRequest || 0) + 1);
+  if (!project || !plate) {
+    image.hidden = true;
+    image.onload = null;
+    image.onerror = null;
+    return request;
+  }
+  const src = `${API_BASE}/projects/${project.id}/preview?plate=${plate}`;
+  image.alt = `Xem trước ${project.name} · Plate ${plate}`;
+  const current = () => image.previewRequest === request;
+  image.onload = () => {
+    if (current()) image.hidden = false;
+  };
+  image.onerror = () => {
+    if (current()) image.hidden = true;
+  };
+  if (image.getAttribute?.('src') === src && image.complete && image.naturalWidth) {
+    image.hidden = false;
+    return request;
+  }
+  image.hidden = true;
+  image.src = src;
+  return request;
+}
+function renderJobPreview() {
+  const preview = $('#job-preview');
+  const frame = $('#job-preview-frame');
+  const illustration = $('#printer-illustration');
+  const platform = $('#printer-platform');
+  const target = printingNow() ? currentPrintTarget() : null;
+  const showMachine = () => {
+    if (illustration) illustration.hidden = false;
+    if (platform) platform.hidden = false;
+    if (frame) frame.hidden = true;
+  };
+  if (!preview || !target) {
+    if (preview) bindPlatePreview(preview, null, null);
+    showMachine();
+    return;
+  }
+  $('#job-preview-caption').textContent = `${target.project.name} · Plate ${target.plate}`;
+  $('#job-description').textContent = `Plate ${target.plate} của tệp đang in`;
+  const request = bindPlatePreview(preview, target.project, target.plate);
+  const reveal = preview.onload;
+  const fail = preview.onerror;
+  preview.onload = () => {
+    reveal();
+    if (preview.previewRequest !== request || preview.hidden) return;
+    if (illustration) illustration.hidden = true;
+    if (platform) platform.hidden = true;
+    if (frame) frame.hidden = false;
+  };
+  preview.onerror = () => {
+    fail();
+    if (preview.previewRequest === request) showMachine();
+  };
+  if (!preview.hidden) {
+    if (illustration) illustration.hidden = true;
+    if (platform) platform.hidden = true;
+    if (frame) frame.hidden = false;
+  } else showMachine();
+}
+function renderQueuePreview() {
+  const image = $('#queue-preview');
+  const frame = $('#queue-preview-frame');
+  const item = activeQueueItem();
+  const project = item ? UI.projects.find((entry) => entry.id === item.id) : null;
+  const plate =
+    plateOnProject(project, item?.plate) ||
+    (project?.plates?.length === 1 ? project.plates[0].number : null);
+  if (!image) return;
+  if (project && plate)
+    $('#queue-preview-caption').textContent = `Đang in ${project.name} · Plate ${plate}`;
+  const request = bindPlatePreview(image, project, plate);
+  if (!project || !plate) {
+    if (frame) frame.hidden = true;
+    return;
+  }
+  const reveal = image.onload;
+  const fail = image.onerror;
+  image.onload = () => {
+    reveal();
+    if (image.previewRequest === request && frame) frame.hidden = image.hidden;
+  };
+  image.onerror = () => {
+    fail();
+    if (image.previewRequest === request && frame) frame.hidden = true;
+  };
+  if (frame) frame.hidden = image.hidden;
 }
 async function startPrintQueue() {
   if (UI.queueSubmitting || UI.queue.active) return;

@@ -380,11 +380,16 @@
                 <div class="printer-card-body">
                   <div class="printer-visual">
                     <img
+                      id="printer-illustration"
                       src="/printer.svg"
                       alt="Máy in 3D P2S với AMS"
                       width="300"
                       height="285"
-                    /><span class="printer-platform"></span>
+                    /><span id="printer-platform" class="printer-platform"></span>
+                    <figure id="job-preview-frame" class="job-preview-frame" hidden>
+                      <img id="job-preview" class="job-preview" alt="Ảnh tệp đang in" />
+                      <figcaption id="job-preview-caption">Tệp đang in</figcaption>
+                    </figure>
                   </div>
                   <div class="printer-information">
                     <span class="model-label">BAMBU LAB</span>
@@ -612,6 +617,10 @@
                 <p id="queue-message"></p>
                 <p id="queue-progress"></p>
               </div>
+              <figure id="queue-preview-frame" class="queue-preview-frame" hidden>
+                <img id="queue-preview" class="print-preview" alt="Ảnh tệp đang in" />
+                <figcaption id="queue-preview-caption"></figcaption>
+              </figure>
               <button id="cancel-queue-button" class="button secondary">Hủy hàng đợi</button>
               <ol id="queue-items"></ol>
             </section>
@@ -637,9 +646,9 @@
               <div>
                 <h2>Tệp trên USB máy in</h2>
                 <p>
-                  Danh sách đọc trực tiếp từ USB của P2S. Bấm tên tệp MP4, kể cả video trong thư
-                  mục timelapse, để xem ngay trên trang. Chọn các tệp rồi xóa một lần, hoặc xóa
-                  từng tệp. App không xóa thư mục, và không xóa tệp đang được bản in dùng.
+                  Danh sách đọc trực tiếp từ USB của P2S. Bấm tên tệp MP4, kể cả video trong thư mục
+                  timelapse, để xem ngay trên trang. Chọn các tệp rồi xóa một lần, hoặc xóa từng
+                  tệp. App không xóa thư mục, và không xóa tệp đang được bản in dùng.
                 </p>
                 <p id="usb-capacity" class="usb-capacity" role="status">Đang chờ dung lượng USB.</p>
                 <p id="usb-status" class="field-help" role="status">Đang chờ đọc USB.</p>
@@ -743,7 +752,8 @@
           <input id="filament-clear-temp" type="number" min="170" max="300" value="220" required />
         </label>
         <p class="field-help">
-          Nhựa cũ mềm rồi máy nâng đầu phun, đưa ra phía cửa và di chuyển qua lại. Giữ bàn in trống và theo dõi camera.
+          Nhựa cũ mềm rồi máy nâng đầu phun, đưa ra phía cửa và di chuyển qua lại. Giữ bàn in trống
+          và theo dõi camera.
         </p>
         <div class="dialog-actions">
           <button id="filament-clear-start" type="submit" class="button primary">

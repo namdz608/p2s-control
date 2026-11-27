@@ -327,6 +327,106 @@ test('print setup swaps the preview to the image of the selected plate', async (
   assert.equal(preview.hidden, false);
 });
 
+test('the printing screen shows the plate image of the file currently printing', async () => {
+  const f = await ui();
+  const id = 'a'.repeat(32);
+  vm.runInContext(
+    `UI.projects = [
+      { id: '${id}', name: '01-Batman-AMS1', plates: [{ number: 1 }, { number: 5 }] },
+      { id: 'other', name: '02-Base-AMS2', plates: [{ number: 1 }] }
+    ];
+    UI.printer = { status: 'RUNNING', task: '01-Batman-AMS1', activeFile: '/data/Metadata/plate_5.gcode' };
+    UI.queue = { active: true, status: 'printing', items: [], completed: 0 };
+    renderJobPreview();`,
+    f.context,
+  );
+  const preview = f.node('#job-preview');
+  assert.equal(preview.src, `/api/v1/projects/${id}/preview?plate=5`);
+  assert.match(preview.alt, /Plate 5/);
+  assert.equal(preview.hidden, true);
+  assert.equal(f.node('#printer-illustration').hidden, false);
+  preview.onload();
+  assert.equal(preview.hidden, false);
+  assert.equal(f.node('#job-preview-frame').hidden, false);
+  assert.equal(f.node('#printer-illustration').hidden, true);
+  assert.equal(f.node('#printer-platform').hidden, true);
+  assert.match(f.node('#job-preview-caption').textContent, /01-Batman-AMS1 · Plate 5/);
+  assert.match(f.node('#job-description').textContent, /Plate 5/);
+  const staleLoad = preview.onload;
+  vm.runInContext(
+    `UI.printer.activeFile = '/data/Metadata/plate_1.gcode'; renderJobPreview();`,
+    f.context,
+  );
+  assert.equal(preview.src, `/api/v1/projects/${id}/preview?plate=1`);
+  assert.equal(preview.hidden, true);
+  staleLoad();
+  assert.equal(preview.hidden, true);
+  assert.equal(f.node('#printer-illustration').hidden, false);
+  preview.onload();
+  assert.equal(preview.hidden, false);
+  assert.equal(f.node('#printer-illustration').hidden, true);
+  vm.runInContext(`UI.printer.status = 'IDLE'; renderJobPreview();`, f.context);
+  assert.equal(f.node('#job-preview-frame').hidden, true);
+  assert.equal(f.node('#printer-illustration').hidden, false);
+  assert.equal(preview.hidden, true);
+});
+
+test('the file reported by the printer selects that project even when names collide', async () => {
+  const f = await ui();
+  const id = 'b'.repeat(32);
+  vm.runInContext(
+    `UI.projects = [
+      { id: 'one', name: 'Same', plates: [{ number: 1 }] },
+      { id: '${id}', name: 'Same', plates: [{ number: 2 }, { number: 8 }] }
+    ];
+    UI.printer = { status: 'PAUSE', task: 'Same', activeFile: '/cache/${id}.gcode.3mf' };
+    UI.queue = { active: true, status: 'printing', items: [{ id: '${id}', name: 'Same', plate: 8, status: 'printing' }] };
+    renderJobPreview();`,
+    f.context,
+  );
+  assert.equal(f.node('#job-preview').src, `/api/v1/projects/${id}/preview?plate=8`);
+});
+
+test('a duplicated file name does not show the wrong plate image', async () => {
+  const f = await ui();
+  vm.runInContext(
+    `UI.projects = [
+      { id: 'one', name: 'Same', plates: [{ number: 1 }] },
+      { id: 'two', name: 'Same', plates: [{ number: 1 }] }
+    ];
+    UI.printer = { status: 'RUNNING', task: 'Same', activeFile: '/data/Metadata/plate_1.gcode' };
+    UI.queue = { active: false, status: 'idle', items: [] };
+    renderJobPreview();`,
+    f.context,
+  );
+  assert.equal(f.node('#job-preview').hidden, true);
+  assert.equal(f.node('#printer-illustration').hidden, false);
+  assert.equal(f.node('#job-preview-frame').hidden, true);
+});
+
+test('the queue card previews the plate the queue is printing', async () => {
+  const f = await ui();
+  vm.runInContext(
+    `UI.projects = [{ id: 'abc', name: '03-Cape <red>', plates: [{ number: 2 }, { number: 4 }] }];
+    UI.printer = { status: 'IDLE' };
+    UI.queue = { active: true, status: 'printing', completed: 0, items: [
+      { id: 'abc', name: '03-Cape <red>', plate: 4, status: 'printing' }
+    ] };
+    renderPrintControls();`,
+    f.context,
+  );
+  const preview = f.node('#queue-preview');
+  assert.equal(preview.src, '/api/v1/projects/abc/preview?plate=4');
+  assert.equal(preview.hidden, true);
+  assert.equal(f.node('#queue-preview-frame').hidden, true);
+  preview.onload();
+  assert.equal(preview.hidden, false);
+  assert.equal(f.node('#queue-preview-frame').hidden, false);
+  assert.equal(f.node('#queue-preview-caption').textContent, 'Đang in 03-Cape <red> · Plate 4');
+  preview.onerror();
+  assert.equal(f.node('#queue-preview-frame').hidden, true);
+});
+
 test('manual selection summary identifies an unconfigured A4 and asks to check the sliced material', async () => {
   const f = await ui();
   f.node('#print-source').value = 'ams';
